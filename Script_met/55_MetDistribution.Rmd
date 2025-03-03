@@ -1,0 +1,333 @@
+---
+title: "Untitled"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-09-08"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+required packages
+```{r, message =F}
+require(BGLR)
+require(here)
+require(ggplot2)
+require(reshape2)
+require(gridExtra)
+require(ranger)
+require(ggrepel)
+require(tidyverse)
+```
+
+#BLUP
+
+
+##Drought
+###2019
+
+```{R}
+predmet20 <- read.csv(here("out", "20f20_predmet_GM_blup_OneOut.csv"), row.names = 1)
+met20.cd <- read.csv(here("out", "met20d.csv"), row.names = 1)
+
+predmet19 <- read.csv(here("out", "19f19_predmet_GM_blup_OneOut.csv"), row.names = 1)
+met19.cd <- read.csv(here("out", "met19d.csv"), row.names = 1)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc < -0.999)
+#pcsel<- (pc > 0.5)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '19from19 Drought MetPrediction by GM-BLUP')
+
+predmet19 <- scale(predmet19)
+```
+
+```{R}
+####dev.new()
+boxplot(met19.cd,cex=0.1,col='blue')
+title('TrueMet19f19D (263 Metabolites, 172 lineages)')
+
+#####dev.new()
+boxplot(predmet19,cex=0.1,col='red')
+title('PredMet19f19D GM-BLUP  (263 Metabolites, 172 lineages)')
+
+which(pcsel)
+```
+
+True hist
+```{R}
+#dev.new(width=10, height=30)
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(45,6))
+par(cex.axis=0.01)
+#par(pin = c(0.4,0.4))
+
+
+min=min(min(predmet19),min(met19.cd))
+max=max(max(predmet19),max(met19.cd))
+
+for (i in 1:263){
+mm<- met19.cd[,i]
+pm = predmet19[,i]
+#plot(mm,pm)
+cor(mm,pm)
+hist(mm,breaks=seq(-14,14,length.out = 151),xlim = c(-2,4),main='',col="blue")
+
+summary(mm)
+sort(mm)
+}
+
+#
+```
+
+BLUP hist
+```{R}
+
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(45,6))
+par(cex.axis=0.01)
+
+for (i in 1:263){
+mm<- met19.cd[,i]
+pm = predmet19[,i]
+#plot(mm,pm)
+cor(mm,pm)
+hist(pm,breaks=seq(-14,14,length.out = 151),xlim = c(-2,4),main='',col="red")
+#hist(pm,breaks = 50)
+summary(mm)
+sort(mm)
+}
+idx = which(mm>1.5)
+cor(mm[-idx], pm[-idx])
+
+
+```
+
+Fitting
+```{R}
+
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(14,20))
+par(cex.axis=0.01)
+for (i in 1:263){
+mm<- met19.cd[,i]
+pm = predmet19[,i]
+plot(mm,pm,cex=0.1,xlim = c(min(mm,pm),max(mm,pm)),ylim = c(min(mm,pm),max(mm,pm)))
+abline(a=0,b=1,col = adjustcolor("red", alpha = 0.5))
+cor(mm,pm)
+
+#hist(mm,breaks = 40,main='',labels=FALSE)
+#hist(pm,breaks = 50)
+summary(mm)
+sort(mm)
+}
+
+```
+
+```{r}
+par(mfrow = c(4, 4))
+par(mar = c(0.5, 0.5, 0.5, 0.5))
+par(cex.axis=0.01)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc < -0.999)
+#pcsel<- (pc > 0.5)
+t<- table(pcsel)
+pcmat<- met19.cd[,pcsel]
+
+for (i in 1:t["TRUE"]){
+
+plot(scale(predmet19[,pcsel][,i]),met19.cd[,pcsel][,i],xlab = "PredMet19from19",ylab="Met19")
+abline(a=0,b=1,col=2)
+
+#met20.cd[met20.cd[,i] > 10,i]
+}
+```
+
+
+```{r}
+par(mfrow = c(4, 4))
+par(mar = c(0.5, 0.5, 0.5, 0.5))
+par(cex.axis=0.01)
+
+for (i in 1:t["TRUE"]){
+
+hist(met19.cd[,pcsel][,i],main='')
+
+#met20.cd[met20.cd[,i] > 10,i]
+  }
+```
+
+
+#RF
+##2019
+
+read metabolomic data
+read predicted meta-metabolome data
+```{r}
+met<- read.csv(here("2019","2019_Tottori_Jul_RootMetabolome_X.csv"))
+rownames(met) <- paste0(substr(as.matrix(met[7]),1,2),".",sprintf("%03d",as.matrix(met[8])))
+met <- met[,10:ncol(met)]
+colnames(met)<- sub("M","X",colnames(met))
+
+met.all <- readRDS(here("out", "predMet_PredictedValues.rds"))
+metRF <- met.all$GM
+colnames(metRF)<-colnames(met)
+
+s_p <- rownames(met) %in% rownames(metRF)
+met<- met[s_p,]
+s_p <- rownames(metRF) %in% rownames(met)
+metRF<- metRF[s_p,]
+
+s_p <- colnames(metRF) %in% colnames(met19.cd)
+metRF<- metRF[,s_p]
+met<- met[,s_p]
+
+
+met <- scale(met)
+metRF <- scale(metRF)
+```
+
+hist
+```{r}
+# RF need to be sorted based on met19
+cor<- cor(metRF,met)
+pc<- diag(cor)
+pcsel<- (pc < -0.999)
+#pcsel<- (pc > 0.5)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=10,xlab = "COR", main = '19from19 Drought MetPrediction by GM-RandomForest')
+
+print(t)
+```
+
+boxplot
+```{R}
+boxplot(met,cex=0.1,col='blue')
+title('TrueMet19f19D (263 Metabolites, 179 linages)')
+
+boxplot(metRF,cex=0.1,col='green')
+title('PredMet19f19D GM-RF (263 Metabolites, 179 linages)')
+```
+
+Truemet hist
+```{R}
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(45,6))
+par(cex.axis=0.01)
+#par(pin = c(0.4,0.4))
+for (i in 1:ncol(met)){
+mm<- met[,i]
+pm = metRF[,i]
+#plot(mm,pm)
+cor(mm,pm)
+
+hist(mm,breaks=seq(-14,14,length.out = 151),xlim = c(-2,4),main='',col="blue")
+#hist(pm,breaks = 50)
+summary(mm)
+sort(mm)
+}
+
+
+```
+
+RF hist
+```{R}
+
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(45,6))
+par(cex.axis=0.01)
+
+for (i in 1:ncol(met)){
+mm<- met[,i]
+pm = metRF[,i]
+#plot(mm,pm)
+cor(mm,pm)
+hist(pm,breaks=seq(-14,14,length.out = 151),xlim = c(-2,4),main='',col="green")
+#hist(pm,breaks = 50)
+summary(mm)
+sort(mm)
+}
+idx = which(mm>1.5)
+cor(mm[-idx], pm[-idx])
+
+
+```
+
+Fitting RF
+```{R}
+
+par(mar = c(0.1, 0.1, 0.1, 0.1))
+par(mfrow = c(14,20))
+par(cex.axis=0.01)
+for (i in 1:ncol(met)){
+mm<- met[,i]
+pm = metRF[,i]
+plot(mm,pm,cex=0.1,xlim = c(min(mm,pm),max(mm,pm)),ylim = c(min(mm,pm),max(mm,pm)))
+abline(a=0,b=1,col = adjustcolor("green", alpha = 0.5))
+#hist(mm,breaks = 40,main='',labels=FALSE)
+#hist(pm,breaks = 50)
+summary(mm)
+sort(mm)
+}
+
+
+```
+
+```{r}
+par(mfrow = c(4, 4))
+par(mar = c(0.5, 0.5, 0.5, 0.5))
+par(cex.axis=0.01)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc < -0.999)
+#pcsel<- (pc > 0.5)
+t<- table(pcsel)
+
+for (i in 1:t["TRUE"]){
+
+plot(metRF[,pcsel][,i],met[,pcsel][,i],xlab = "PredMet19from19",ylab="Met19")
+abline(a=0,b=1,col=2)
+
+#met20.cd[met20.cd[,i] > 10,i]
+}
+```
+
+
+```{r}
+par(mfrow = c(4, 4))
+par(mar = c(0.5, 0.5, 0.5, 0.5))
+par(cex.axis=0.01)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc < -0.999)
+#pcsel<- (pc > 0.5)
+t<- table(pcsel)
+
+for (i in 1:t["TRUE"]){
+
+hist(met[,pcsel][,i],main='')
+#met20.cd[met20.cd[,i] > 10,i]
+}
+```
+example
+```{r,eval=FALSE}
+i=3
+hist(mm,breaks = 40,main='',col="blue")
+hist(pm,breaks = 40,main='',col="red")
+mm<- met[,i]
+pm = metRF[,i]
+plot(mm,pm)
+```
+
+

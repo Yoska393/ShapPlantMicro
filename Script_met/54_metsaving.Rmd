@@ -1,0 +1,352 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-09-08"
+---
+## 2.1 Model Build for 2020 Met Prediction 
+Oneout 45 ver2
+Inter and inner year prediction by BLUP   
+Drought and Control
+We tried the following models     
+- G -> Met  (2019->2020)  
+- G + Micro -> Met (2019->2020)  
+- G + Micro -> Met (2020->2020)  
+
+required packages
+```{r, message =F}
+require(BGLR)
+require(here)
+require(ggplot2)
+require(reshape2)
+require(gridExtra)
+library(readr)
+library(stringr)
+library(ggsci)
+library(RAINBOWR)
+library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+library(doRNG)
+library(tictoc)
+library(doSNOW)
+```
+
+seed
+```{r, message =F}
+# save or read the seed
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+read phenotypic data
+```{r}
+pheno18 <- read.csv(here("2018", "shoot_blup_all_2018.csv"), row.names = 1)
+pheno19 <- read.csv(here("2019", "shoot_blup_all_2019.csv"), row.names = 1)
+pheno20 <- read.csv(here("2020", "shoot_blup_all_2020.csv"), row.names = 1)
+
+plot18<-rownames(pheno18)
+plot19<-rownames(pheno19)
+plot20<-rownames(pheno20)
+
+var18<-pheno18$var.id
+var19<-pheno19$var.id
+var20<-pheno20$var.id
+```
+
+read genomic relationship matrix data
+```{r}
+grm <- readRDS(here("data", "grm_2.rds"))
+head(grm)[,1:3]
+```
+
+read metabolomic data
+```{r}
+met<- read.csv(here("2019","2019_Tottori_Jul_RootMetabolome_X.csv"))
+rownames(met) <- paste0(substr(as.matrix(met[7]),1,2),".",sprintf("%03d",as.matrix(met[8])))
+met19 <- met[,10:ncol(met)]
+colnames(met19)<- sub("M","X",colnames(met19))
+
+met <- read.csv(here("2020", "2020_Tottori_Main_RootMetabolome.csv"))
+rownames(met) <- paste0(substr(as.matrix(met[7]),1,2),".",sprintf("%03d",as.matrix(met[8])))
+met20 <- met[,10:ncol(met)]
+
+s_c <- colnames(met19) %in% colnames(met20)
+met19<- met19[,s_c]
+s_c <- colnames(met20) %in% colnames(met19)
+met20<- met20[,s_c]
+#table(colnames(met20) == colnames(met19))
+```
+
+read microbiome rarificated data
+```{r}
+com <- read.table(here("2018", "table-from-biom-7-2018-after.txt"), row.names = 1)
+rownames(com) <- gsub(";",".",rownames(com))
+com18<- com
+colnames(com18) <- cbind(plot18[201:400],plot18[601:800])
+
+com <- read.csv(here("2019", "table-from-biom-7.csv"), row.names = 1)
+rownames(com) <- gsub(";",".",rownames(com))
+com19<- com
+
+#comriken <- read.csv(here("2020", "table-from-biom-7-2020-after.csv"))
+com <- read.csv(here("2020", "2020_Tottori_Main_Microbiome_Ratio.csv"))
+rownames(com) <- paste0(substr(as.matrix(com[7]),1,2),".",sprintf("%03d",as.matrix(com[8])))
+com <- com[,10:ncol(com)]
+com20 <- t(com)
+
+#s_c <- rownames(com19) %in% rownames(com20)
+#com19<- com19[s_c,]
+#s_c <- rownames(com20) %in% rownames(com19)
+#com20<- com20[s_c,]
+
+s_c <- (rownames(com19) %in% rownames(com20)) & (rownames(com19) %in% rownames(com18))
+com19<- com19[s_c,]
+s_c <- rownames(com20) %in% rownames(com19)
+com20<- com20[s_c,]
+s_c <- rownames(com18) %in% rownames(com20)
+com18<- com18[s_c,]
+
+dim(com18)
+dim(com19)
+dim(com20)
+```
+
+
+### Drought
+
+```{r}
+CD ="W4"
+```
+
+
+select the lines which has pheno, grm, met, micro data in 2019 and 2020
+```{r}
+selector.grm1 <- pheno18$var.id %in% rownames(grm)
+selector.com1 <-rownames(pheno18) %in% colnames(com18)
+
+selector.grm2 <- pheno19$var.id %in% rownames(grm)
+selector.com2 <-rownames(pheno19) %in% colnames(com19)
+
+selector.grm3 <- pheno20$var.id %in% rownames(grm)
+selector.com3 <-rownames(pheno20) %in% colnames(com20)
+
+
+pl<- list(pheno18,pheno19,pheno20)
+pl.sel<- list()
+
+for (i in 2:3){
+pheno<- pl[[i]]
+
+if (i==1) {
+  selector.grm <- selector.grm1
+  selector.com <- selector.com1
+}
+
+else if (i==2) {
+  selector.grm <- selector.grm2
+  selector.com <- selector.com2
+}
+
+else if (i==3) {
+  selector.grm <- selector.grm3
+  selector.com <- selector.com3
+}
+
+
+pheno.sel <- pheno[selector.grm & selector.com, ]
+#head(pheno.sel)
+print(dim(pheno.sel))
+
+selector.cd <- substr(rownames(pheno.sel), 1, 2) == CD 
+pheno.sel.cd <- pheno.sel[selector.cd, ]
+dim(pheno.sel.cd)
+
+plot.id <- rownames(pheno.sel.cd)
+rownames(pheno.sel.cd)<-pheno.sel.cd$var.id
+pheno.sel.cd$var.id <- plot.id
+colnames(pheno.sel.cd)[1]<- "plot.id"
+sg <- rownames(grm) %in% rownames(pheno.sel.cd)
+gv<-rownames(grm[sg,sg])
+pheno.sel.cd<- pheno.sel.cd[gv,]
+print(dim(pheno.sel.cd))
+pl.sel[[i]]<- pheno.sel.cd
+}
+
+#psc18<-  pl.sel[[1]]
+psc19<-  pl.sel[[2]] 
+psc20<-  pl.sel[[3]]
+
+
+
+s_p <- rownames(psc19) %in% rownames(psc20)
+psc19<- psc19[s_p,]
+s_p <- rownames(psc20) %in% rownames(psc19)
+psc20<- psc20[s_p,]
+
+s_p <- colnames(psc19) %in% colnames(psc20)
+psc19<- psc19[,s_p]
+s_p <- colnames(psc20) %in% colnames(psc19)
+psc20<- psc20[,s_p]
+
+table(rownames(psc19) == rownames(psc20))
+
+```
+
+
+
+
+2019 
+```{r}
+var.id <- rownames(psc19)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc19$plot.id
+com19.cd <- t(com19[, plot.id])
+com19.cd <- scale(com19.cd[, apply(com19.cd, 2, sd) > 0])
+#met19ns.cd <- met19[plot.id, ]
+met19.cd <- scale(met19[plot.id, ])
+
+```
+
+2020
+```{r, message =F}
+var.id <- rownames(psc20)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc20$plot.id
+com20.cd <- t(com20[, plot.id])
+com20.cd <- scale(com20.cd[, apply(com20.cd, 2, sd) > 0])
+#met20ns.cd <- met20[plot.id, ]
+met20.cd <- scale(met20[plot.id, ])
+```
+
+Save the targeted Met 
+```{r, message =F}
+dim(met20.cd)
+dim(met19.cd)
+write.csv(met20.cd,here("out","met20d.csv"))
+write.csv(met19.cd,here("out","met19d.csv"))
+```
+
+
+### Drought
+
+```{r}
+CD ="W1"
+```
+
+
+select the lines which has pheno, grm, met, micro data in 2019 and 2020
+```{r}
+selector.grm1 <- pheno18$var.id %in% rownames(grm)
+selector.com1 <-rownames(pheno18) %in% colnames(com18)
+
+selector.grm2 <- pheno19$var.id %in% rownames(grm)
+selector.com2 <-rownames(pheno19) %in% colnames(com19)
+
+selector.grm3 <- pheno20$var.id %in% rownames(grm)
+selector.com3 <-rownames(pheno20) %in% colnames(com20)
+
+
+pl<- list(pheno18,pheno19,pheno20)
+pl.sel<- list()
+
+for (i in 2:3){
+pheno<- pl[[i]]
+
+if (i==1) {
+  selector.grm <- selector.grm1
+  selector.com <- selector.com1
+}
+
+else if (i==2) {
+  selector.grm <- selector.grm2
+  selector.com <- selector.com2
+}
+
+else if (i==3) {
+  selector.grm <- selector.grm3
+  selector.com <- selector.com3
+}
+
+
+pheno.sel <- pheno[selector.grm & selector.com, ]
+#head(pheno.sel)
+print(dim(pheno.sel))
+
+selector.cd <- substr(rownames(pheno.sel), 1, 2) == CD 
+pheno.sel.cd <- pheno.sel[selector.cd, ]
+dim(pheno.sel.cd)
+
+plot.id <- rownames(pheno.sel.cd)
+rownames(pheno.sel.cd)<-pheno.sel.cd$var.id
+pheno.sel.cd$var.id <- plot.id
+colnames(pheno.sel.cd)[1]<- "plot.id"
+sg <- rownames(grm) %in% rownames(pheno.sel.cd)
+gv<-rownames(grm[sg,sg])
+pheno.sel.cd<- pheno.sel.cd[gv,]
+print(dim(pheno.sel.cd))
+pl.sel[[i]]<- pheno.sel.cd
+}
+
+#psc18<-  pl.sel[[1]]
+psc19<-  pl.sel[[2]] 
+psc20<-  pl.sel[[3]]
+
+
+
+s_p <- rownames(psc19) %in% rownames(psc20)
+psc19<- psc19[s_p,]
+s_p <- rownames(psc20) %in% rownames(psc19)
+psc20<- psc20[s_p,]
+
+s_p <- colnames(psc19) %in% colnames(psc20)
+psc19<- psc19[,s_p]
+s_p <- colnames(psc20) %in% colnames(psc19)
+psc20<- psc20[,s_p]
+
+table(rownames(psc19) == rownames(psc20))
+
+```
+
+
+
+
+2019 
+```{r}
+var.id <- rownames(psc19)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc19$plot.id
+com19.cd <- t(com19[, plot.id])
+com19.cd <- scale(com19.cd[, apply(com19.cd, 2, sd) > 0])
+#met19ns.cd <- met19[plot.id, ]
+met19.cd <- scale(met19[plot.id, ])
+
+```
+
+2020
+```{r, message =F}
+var.id <- rownames(psc20)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc20$plot.id
+com20.cd <- t(com20[, plot.id])
+com20.cd <- scale(com20.cd[, apply(com20.cd, 2, sd) > 0])
+#met20ns.cd <- met20[plot.id, ]
+met20.cd <- scale(met20[plot.id, ])
+```
+
+
+Save the targeted Met 
+```{r, message =F}
+dim(met20.cd)
+dim(met19.cd)
+write.csv(met20.cd,here("out","met20c.csv"))
+write.csv(met19.cd,here("out","met19c.csv"))
+```
+
+

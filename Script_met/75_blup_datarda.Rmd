@@ -1,0 +1,252 @@
+---
+title: "75_BLUP_samedata"
+author: "Hayato Yoshioka"
+date: "2025-01-29"
+output: html_document
+---
+
+
+
+RDA classic 
+Refer to Script/6_4 soybean_two for original
+
+genome 3000 is the best . 
+
+Scale or not
+
+all data too
+
+```{r, message =F}
+require(BGLR)
+library(dplyr)
+require(here)
+require(ggplot2)
+# require(reshape2)
+# require(gridExtra)
+# library(readr)
+library(stringr)
+# library(ggsci)
+library(RAINBOWR)
+# library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+# library(doRNG)
+library(tictoc)
+library(doSNOW)
+library(purrr)
+source("Script/MyFunctions.R")
+# library(vegan)
+# library(VARshrink)
+# library(ggplot2)
+# library(glmnet)
+# library(lars)
+require(ranger)
+# require(ggrepel)
+# require(tidyverse)
+library(rrda)
+
+getwd()
+```
+
+seed
+```{r, message =F}
+# save or read the seed
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+```{r}
+Data<-readRDS(here("data/two/two2019.RDS"))
+#predmet<-readRDS(here("out","Soy",cd,"predmmet_gmicro_rda.RDS"))
+
+genome<-Data$genome3k
+grm<-Data$grm
+met<-Data$met
+mic<-Data$mic
+mir<-Data$mir
+pheno<-Data$pheno
+
+cd<-Data$cd
+
+if (cd == "Drought"){
+	CD<-"W4"
+} else if (cd=="Control"){
+	CD<-"W1"
+}
+
+
+RF <- readRDS( here("out", paste0("19f19_predMet_RF_countmicro2", "_W4", ".RDS")))
+predmet19RF<-RF[["G+Micro"]]
+
+predmet19RDA<-readRDS(here("out","Soy",cd,"predmmet_gmicro_rda.RDS"))
+```
+
+
+```{r}
+predmet19RDA<-scale(predmet19RDA)
+predmet19RF<-scale(predmet19RF)
+```
+
+
+RM
+```{r, message =F}
+psc19<-cbind(rownames(grm),pheno)
+grm.cd<-grm
+mrm19r.cd <- tcrossprod(mir) / ncol(mir)
+mrm19c.cd <- tcrossprod(mic) / ncol(mic)
+metrm19.cd <- tcrossprod(met) / ncol(met)
+metPrm19RF.cd <- tcrossprod(predmet19RF) / ncol(predmet19RF)
+metPrm19RDA.cd <- tcrossprod(predmet19RDA) / ncol(predmet19RDA)
+```
+
+### Yield 2019model
+
+```{r, message =F, include=TRUE,eval=TRUE}
+K1 <- grm.cd
+
+K2.1 <- mrm19r.cd
+K2.2 <- mrm19c.cd
+
+K3 <- metrm19.cd
+#K8 <- metPrm19.cd
+
+K11 <- metPrm19RF.cd
+K13 <- metPrm19RDA.cd 
+
+	
+Z <- design.Z(pheno.labels = rownames(grm.cd),geno.names = rownames(grm.cd))
+
+KZ1<- list(A= list(K = K1, Z = Z))
+
+#KZ2.1<- list(A= list(K = K2.1, Z = Z))
+KZ2.2<- list(A= list(K = K2.2, Z = Z))
+
+KZ3<- list(A= list(K = K3, Z = Z))
+
+#KZ1_2.1<- list(A= list(K = K1, Z = Z),B= list(K = K2.1, Z = Z))
+KZ1_2.2<- list(A= list(K = K1, Z = Z),B= list(K = K2.2, Z = Z))
+
+#KZ1_2.1<- list(A= list(K = K1, Z = Z),B= list(K = K2.1, Z = Z))
+KZ1_3<- list(A= list(K = K1, Z = Z),B= list(K = K3, Z = Z))
+
+
+
+#KZ1_11<- list(A= list(K = K1, Z = Z),B= list(K = K11, Z = Z))
+
+KZ1_2.2_11<- list(A= list(K = K1, Z = Z),B= list(K = K2.2, Z = Z),B= list(K = K11, Z = Z))
+KZ1_2.2_3<- list(A= list(K = K1, Z = Z),B= list(K = K2.2, Z = Z),B= list(K = K3, Z = Z))
+
+KZ1_2.2_13<- list(A= list(K = K1, Z = Z),B= list(K = K2.2, Z = Z),B= list(K = K13, Z = Z))
+
+#ZETAlist <- list(KZ1_2.2_13)
+#names(ZETAlist) <- c("KZ1_2.2_13")
+# 
+
+
+ZETAlist <- list(KZ1,KZ2.2,KZ3,KZ1_2.2,KZ1_3,KZ1_2.2_3)
+names(ZETAlist) <- c("KZ1", "KZ2.2", "KZ3","KZ1_2.2", "KZ1_3", "KZ1_2.2_3")
+
+names<- names(ZETAlist)
+names
+```
+
+
+```{r}
+y <- psc19 # 36min
+tic()
+res<- getBLUP(ZETAlist,y)
+toc()
+saveRDS(res, here("out", paste0("yPredYield_BLUP_1231213123", CD, "com.RDS")))
+```
+
+
+```{r}
+y <- psc19 # 36min
+tic()
+res<- getBLUP(ZETAlist,y)
+toc()
+saveRDS(res, here("out", paste0("yPredYield_BLUP_micro_count_gmicromet", CD, "com.RDS")))
+```
+
+```{r}
+CD <- "W4"
+aa<-readRDS(here("out", paste0("yPredYield_BLUP_micro_count_gmicromet", CD, "com.RDS")))
+```
+
+
+```{r}
+y <- psc19 # 36min
+tic()
+res<- getBLUP_simple(ZETAlist,y)
+toc()
+saveRDS(res, here("out", paste0("yPredYield_BLUP_micro_count_withRFpredRDApred3", CD, "com.RDS")))
+```
+
+
+```{r}
+aa<-readRDS(here("out", paste0("yPredYield_BLUP_micro_count_withRFpredRDApred3", CD, "com.RDS")))
+
+aa$resultEachModel
+
+# aa<-readRDS(here("out", paste0("yPredYield_BLUP_micro_count_withRFpredRDApred", CD, "com.RDS")))
+# aa
+
+#aa$resultEachModel
+```
+
+
+```{r}
+y <- psc19 # 36min
+tic()
+res<- getBLUP_simple(ZETAlist,y)
+toc()
+saveRDS(res, here("out", paste0("yPredYield_BLUP_micro_count_", CD, "com.RDS")))
+
+#aa<-readRDS(here("out", paste0("yPredYield_BLUPcountrarificated_", CD, "com.RDS")))
+
+res$resultEachModel
+```
+
+
+paste0("yPredYield_BLUP_micro_gmicro_count_", CD, "com.RDS"))
+
+        DryWeight_Leaves_g DryWeight_Shoot_g FreshWeight_Shoot_g
+KZ2,2            0.3463728         0.4128648           0.4238553
+KZ1_2.2          0.3735325         0.3410225           0.3657435
+        FreshWeight_Leaves_g GrowthStage NumberOfNodes NumberOfTillers
+KZ2,2              0.2934388   0.8602787     0.2931728       0.4769848
+KZ1_2.2            0.3215400   0.8595869     0.2947111       0.4798455
+        PlantHeight_cm TillerLength_cm
+KZ2,2        0.5118845       0.3428230
+KZ1_2.2      0.3490711       0.3397821
+
+
+```{r}
+y <- psc19 # 36min
+tic()
+res<- getBLUP_simple(ZETAlist,y)
+toc()
+saveRDS(res, here("out", paste0("yPredYield_BLUP_micro_gmicro_count_", CD, "com.RDS")))
+
+#aa<-readRDS(here("out", paste0("yPredYield_BLUPcountrarificated_", CD, "com.RDS")))
+
+res$resultEachModel
+```
+
+
+```{r}
+aa<-readRDS(here("out", paste0("yPredYield_BLUP_micro_gmicro_count_", CD, "com.RDS")))
+aa$resultEachModel
+
+aa<-readRDS(here("out", paste0("yPredYield_BLUP_micro_count_", CD, "com.RDS")))
+aa$resultEachModel
+```
+
+

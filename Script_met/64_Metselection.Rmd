@@ -1,0 +1,135 @@
+---
+title: "64_Metselection"
+output: html_document
+date: "2024-06-23"
+---
+
+#BLUP
+
+#Drought
+```{R}
+predmet19 <- read.csv(here("out", "19f19_predmet_GM_blup_OneOut.csv"), row.names = 1)
+met19.cd <- read.csv(here("out", "met19d.csv"), row.names = 1)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '19from19 Drought MetPrediction by GM-BLUP')
+
+pcmat19<- met19.cd[,pcsel]
+
+dim(pcmat19)
+write.csv(pcmat19,here("out", "19f19_predmet_GM_blup_OneOut_cor0.csv"))
+
+```
+
+
+```{r}
+predmet20 <- read.csv(here("out", "20f20_predmet_GM_blup_OneOut.csv"), row.names = 1)
+met20.cd <- read.csv(here("out", "met20d.csv"), row.names = 1)
+
+cor<- cor(predmet20,met20.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_20from20_COR_GM<- diag(cor)
+hist(Predmet_20from20_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '20from20 Drought MetPrediction by GM-BLUP')
+
+pcmat20<- met20.cd[,pcsel]
+
+dim(pcmat20)
+write.csv(pcmat20,here("out", "20f20_predmet_GM_blup_OneOut_cor0.csv"))
+```
+
+
+#Control
+
+```{R}
+predmet19 <- read.csv(here("out", "19f19_predmet_GM_blup_OneOut_c.csv"), row.names = 1)
+met19.cd <- read.csv(here("out", "met19c.csv"), row.names = 1)
+
+cor<- cor(predmet19,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '19from19 Drought MetPrediction by GM-BLUP')
+
+pcmat19<- met19.cd[,pcsel]
+
+dim(pcmat19)
+write.csv(pcmat19,here("out", "19f19_predmet_GM_blup_OneOut_cor0_c.csv"))
+
+```
+
+
+```{r}
+predmet20 <- read.csv(here("out", "20f20_predmet_GM_blup_OneOut_c.csv"), row.names = 1)
+met20.cd <- read.csv(here("out", "met20c.csv"), row.names = 1)
+
+cor<- cor(predmet20,met20.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_20from20_COR_GM<- diag(cor)
+hist(Predmet_20from20_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '20from20 Drought MetPrediction by GM-BLUP')
+
+pcmat20<- met20.cd[,pcsel]
+
+dim(pcmat20)
+write.csv(pcmat20,here("out", "20f20_predmet_GM_blup_OneOut_cor0_c.csv"))
+```
+
+#RF
+
+#Drought
+```{R}
+
+RF <- readRDS(here("out", "19f19_predMet_RF_OneOut_W4.rds"))
+predmet19RF<-RF[["G+Micro"]]
+
+met19.cd <- read.csv(here("out", "met19d.csv"), row.names = 1)
+
+cor<- cor(predmet19RF,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '19from19 Drought MetPrediction by GM-RF')
+
+pcmat19<- met19.cd[,pcsel]
+
+dim(pcmat19)
+write.csv(pcmat19,here("out", "19f19_predmet_GM_RF_OneOut_cor0.csv"))
+```
+
+#Control
+```{R}
+RF <- readRDS(here("out", "19f19_predMet_RF_OneOut_W1.rds"))
+predmet19RF<-RF[["G+Micro"]]
+
+met19.cd <- read.csv(here("out", "met19c.csv"), row.names = 1)
+
+cor<- cor(predmet19RF,met19.cd)
+pc<- diag(cor)
+pcsel<- (pc > 0)
+t<- table(pcsel)
+
+Predmet_19from19_COR_GM<- diag(cor)
+hist(Predmet_19from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=seq(-1,1, length.out = 21),xlab = "COR",main = '19from19 Drought MetPrediction by GM-RF')
+
+pcmat19<- met19.cd[,pcsel]
+
+dim(pcmat19)
+write.csv(pcmat19,here("out", "19f19_predmet_GM_RF_OneOut_cor0_c.csv"))
+```
+
+
+

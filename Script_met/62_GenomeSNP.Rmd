@@ -1,0 +1,117 @@
+---
+title: "62_GenomeSNP"
+output: html_document
+date: "2023-11-30"
+---
+#required packages
+```{r, message =F}
+require(gaston)
+require(here)
+```
+
+#LD
+```{r}
+
+# create save folder
+saveFolder <- here("data","genome")
+# read the vcf file
+genomeFile <- here("data","Gm198_HCDB_190207.fil.snp.remHet.MS0.95_bi_MQ20_DP3-1000.MAF0.025.imputed.v2.chrnum.LD0.95.vcf.gz")
+genomeRaw <- read.vcf(genomeFile)
+genomeRaw@snps$id <- paste0("Chr", genomeRaw@snps$chr, "_", genomeRaw@snps$pos)
+
+GRM <- function(genomeRaw, threshold, saveFolder) {
+  # filtering the SNPs data
+  genomeFil <- select.snps(genomeRaw, condition = maf >= 0.05)
+  genomeFil <- LD.thin(genomeFil, threshold = threshold)
+  
+  genomeMat <- as.matrix(genomeFil) - 1
+  # sum(apply(genomeMat == 0, 1, sum))
+  # genomeMat[1:5, 1:5]
+  filename <- paste0("amat", ncol(genomeMat), "SNP.csv")
+  amat <- calcGRM(genoMat = genomeMat, methodGRM = "A.mat")
+  write.csv(x = amat, file = paste0(saveFolder, filename))
+}
+# create the normal GRM 
+#GRM(genomeRaw = genomeRaw, threshold = 0.8, saveFolder = saveFolder)
+
+# create the marker csv (LD = 0.1 - 0.5)
+for (i in seq(0.1, 0.5, 0.1)) {
+  genomeFil <- select.snps(genomeRaw, condition = maf >= 0.05)
+  genomeFil <- LD.thin(genomeFil, threshold = i)
+  
+  genomeMat <- as.matrix(genomeFil) - 1
+  genomeRaw@snps$pos
+  dim(genomeMat)
+  filename <- paste0("genoMarker_LD", i, "_SNP", ncol(genomeMat), ".csv")
+  write.csv(x = genomeMat, file = here("data/genome",filename))
+  genomea <- as.matrix(genomeMat)
+  chrnum<- substr(colnames(genomea), 1, 4)
+  print(table(chrnum))
+}
+
+
+for (i in c(0.001,0.01,0.1)) {
+  genomeFil <- select.snps(genomeRaw, condition = maf >= 0.05)
+  genomeFil <- LD.thin(genomeFil, threshold = i)
+  
+  genomeMat <- as.matrix(genomeFil) - 1
+  genomeRaw@snps$pos
+  dim(genomeMat)
+  filename <- paste0("genoMarker_LD", i, "_SNP", ncol(genomeMat), ".csv")
+  write.csv(x = genomeMat, file = here("data/genome",filename))
+  genomea <- as.matrix(genomeMat)
+  chrnum<- substr(colnames(genomea), 1, 4)
+  print(table(chrnum))
+}
+
+for (i in c(0.00001)) {
+  genomeFil <- select.snps(genomeRaw, condition = maf >= 0.05)
+  genomeFil <- LD.thin(genomeFil, threshold = i)
+  
+  genomeMat <- as.matrix(genomeFil) - 1
+  genomeRaw@snps$pos
+  dim(genomeMat)
+  filename <- paste0("genoMarker_LD", i, "_SNP", ncol(genomeMat), ".csv")
+  write.csv(x = genomeMat, file = here("data/genome",filename))
+  genomea <- as.matrix(genomeMat)
+  chrnum<- substr(colnames(genomea), 1, 5)
+  print(table(chrnum))
+}
+
+```
+
+#check data
+
+```{r}
+bm<- read.csv(here("data/genome","genoMarker_LD0.5_SNP16419.csv"),row.names = 1)
+
+
+head(bm)[,1:3]
+
+genome <- as.matrix(bm)
+chrnum<- substr(colnames(genome), 1, 4)
+table(chrnum)
+
+colnames(genome)[1]
+```
+
+
+
+read genomic data
+```{r}
+bm2 <- read.vcf(
+  here("data", "Gm198_HCDB_190207.fil.snp.remHet.MS0.95_bi_MQ20_DP3-1000.MAF0.025.imputed.v2.chrnum.LD0.95.vcf.gz"),
+  convert.chr = F)
+```
+```{r}
+bm <- read.vcf(
+  here("data", "Gm198_HCDB_190207.fil.snp.remHet.MS0.95_bi_MQ20_DP3-1000.MAF0.025.imputed.vcf.gz"),
+  convert.chr = F)
+```
+
+
+
+```{r}
+X <- as.matrix(bm)
+dim(X)
+```

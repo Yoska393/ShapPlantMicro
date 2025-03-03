@@ -1,0 +1,107 @@
+---
+title: "79_cv_abpred"
+author: "Hayato Yoshioka"
+date: "2025-02-10"
+output: html_document
+---
+
+
+
+```{r}
+
+for(model in c("sigmoid","p2","relu","linear")){
+
+base_fol <- "out/TSS/ite_rf/"
+cvvr<-readRDS(paste0(base_fol,"/",model,"cor10"))
+cvr <-readRDS(paste0(base_fol,"/",model,"corm"))
+
+
+base_fol <- "out/TSS/ite_BLUP/"
+cvvb<-readRDS(paste0(base_fol,"/",model,"cor10"))
+cvb <-readRDS(paste0(base_fol,"/",model,"corm"))
+
+
+cv_all<- cbind(cvr,cvb)
+colnames(cv_all)<- paste0(colnames(cv_all),"_",c("RF","RF","BLUP","BLUP"))
+
+
+pairs(cv_all, main = paste("Model:", model))
+
+
+}
+```
+
+```{r}
+# カスタムパネル関数を作成
+panel_with_abline <- function(x, y, ...) {
+  points(x, y, ...) # デフォルトのプロット
+  abline(a = 0, b = 1, col = "red", lty = 2) # y = x の線を追加
+}
+
+# ループで各モデルのペアプロットを作成
+for (model in c("sigmoid", "p2", "relu", "linear")) {
+  # RF ベースフォルダ
+  base_fol_rf <- "out/TSS/ite_rf/"
+  cvvr <- readRDS(paste0(base_fol_rf, "/", model, "cor10"))
+  cvr <- readRDS(paste0(base_fol_rf, "/", model, "corm"))
+  
+  # BLUP ベースフォルダ
+  base_fol_blup <- "out/TSS/ite_BLUP/"
+  cvvb <- readRDS(paste0(base_fol_blup, "/", model, "cor10"))
+  cvb <- readRDS(paste0(base_fol_blup, "/", model, "corm"))
+  
+  # 結合とカラム名の設定
+  cv_all <- cbind(cvr, cvb)
+  colnames(cv_all) <- paste0(colnames(cv_all), "_", c("RF", "RF", "BLUP", "BLUP"))
+  
+  # ペアプロットを作成（カスタムパネル関数を指定）
+  pairs(
+    cv_all,
+    main = paste("Model:", model),
+    lower.panel = panel_with_abline, # カスタムパネルで対角線を追加
+    upper.panel = panel_with_abline  # 上部パネルにも対角線を追加
+  )
+}
+
+```
+
+
+```{r, fig.width=5, fig.height=5}
+# カスタムパネル関数を作成
+panel_with_abline <- function(x, y, ...) {
+  points(x, y, ...) # デフォルトのプロット
+  abline(a = 0, b = 1, col = "red", lty = 2) # y = x の線を追加
+}
+
+# ループで各モデルのペアプロットを作成
+for (model in c("sigmoid", "p2", "relu", "linear")) {
+  # RF ベースフォルダ
+  base_fol_rf <- "out/TSS/ite_rf/"
+  cvvr <- readRDS(paste0(base_fol_rf, "/", model, "cor10"))
+  cvr <- readRDS(paste0(base_fol_rf, "/", model, "corm"))
+  
+  # BLUP ベースフォルダ
+  base_fol_blup <- "out/TSS/ite_BLUP/"
+  cvvb <- readRDS(paste0(base_fol_blup, "/", model, "cor10"))
+  cvb <- readRDS(paste0(base_fol_blup, "/", model, "corm"))
+  
+  # 結合とカラム名の設定
+  cv_all <- cbind(cvr, cvb)
+  colnames(cv_all) <- paste0(colnames(cv_all), "_", c("RF", "RF", "BLUP", "BLUP"))
+  cv_all <- cv_all[,c(4,2)]
+  # ペアプロットを作成（カスタムパネル関数を指定）
+  plot(cv_all, xlim = c(min_cvv, max_cvv), ylim = c(min_cvv, max_cvv), 
+     main = paste0("RF vs BLUP: ",model),
+     #ylab="Trained by A + Bpred", xlab="Trained by A"
+     ,cex=0.8
+     #, xlab = "A", ylab = "ABpred"
+     )
+  abline(0, 1, col = "red")
+  print(table((cv_all[,1]-cv_all[,2]) < 0))
+ 
+}
+
+
+
+
+```

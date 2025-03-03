@@ -1,0 +1,160 @@
+---
+title: "Untitled"
+author: "Hayato Yoshioka"
+date: "2025-01-27"
+output: html_document
+---
+
+```{r, message =F}
+require(BGLR)
+library(dplyr)
+require(here)
+require(ggplot2)
+# require(reshape2)
+# require(gridExtra)
+# library(readr)
+library(stringr)
+# library(ggsci)
+library(RAINBOWR)
+# library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+# library(doRNG)
+library(tictoc)
+library(doSNOW)
+library(purrr)
+source("Script/MyFunctions.R")
+# library(vegan)
+# library(VARshrink)
+# library(ggplot2)
+# library(glmnet)
+# library(lars)
+require(ranger)
+# require(ggrepel)
+# require(tidyverse)
+library(rrda)
+
+getwd()
+```
+
+seed
+```{r, message =F}
+# save or read the seed
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+```{r}
+Data<-readRDS(here("data/two/two2019c.RDS"))
+
+genome<-Data$genome3k
+grm<-Data$grm
+met<-Data$met
+mic<-Data$mic
+mir<-Data$mir
+pheno<-Data$pheno
+cd<-Data$cd
+
+if (cd == "Drought"){
+	CD<-"W4"
+} else if (cd=="Control"){
+	CD<-"W1"
+}
+
+# mic <- scale(mic[, apply(mic, 2, sd) > 1])
+# 
+# table(apply(mic, 2, sd) > 0)
+
+
+```
+
+
+metabolome
+```{r}
+set.seed(123)
+# Define number of lambdas and the lambda sequence
+
+n_lam <- 50
+#Lambda <- exp(seq(-8, 20, length.out = n_lam))
+Lambda <- exp(seq(0, 20, length.out = n_lam))
+
+
+# Define X and Y sets with descriptive names
+X_set <- list(genome, grm, met, mic, mir, cbind(genome,mic), cbind(genome,mir))                 # X options
+X_names <- c("genome","grm","metabolome", "micro_c", "micro_r","genome micro_c","genome micro_r")  # Descriptive X names
+Y_set <- list(pheno,met)       # Y options
+Y_names <- c("phenotype","metabolome")  # Descriptive Y names
+
+ni<-c(1,4,6)
+nj<-c(2)
+
+# Loop over all combinations of X and Y
+Ytar<-Y_set[[nj]]
+cmat<- matrix(NA,length(ni),ncol(Ytar))
+colnames(cmat)<-colnames(Ytar)+++++++++
+rownames(cmat)<-X_names[ni]
+
+for (k in 1:length(ni) ){
+#for (k in 1 ){
+ 
+    i<-ni[k]
+    j<-nj
+    
+    X <- X_set[[i]]  # Select X
+    Y <- Y_set[[j]]  # Select Y
+    
+    # Convert X and Y to matrix format
+    X <- as.matrix(X)
+    Y <- as.matrix(Y)
+    
+    pred_Yall<-matrix(NA,nrow(Y),ncol(Y))
+    
+    pb <- txtProgressBar(min = 0, max =nrow(X) , style = 3)
+    for (rn in 1: nrow(X)){
+    #for (rn in 1){
+        X_train<-X[-rn,]
+        X_test<-X[rn,,drop=F]
+        Y_train<-Y[-rn,]
+        Y_test<-Y[rn,,drop=F]
+        
+        # Perform cross-validation using rrda
+        #sink("/dev/null")
+        plan(multisession)
+        #tic()
+        cv_result <- rrda.cv(X = X_train, Y = Y_train,lambda = Lambda,maxrank = 30,verbose = F)
+        #toc()
+        plan(sequential)
+        #sink()
+        # Extract optimal lambda and rank
+        L <- cv_result$opt_min$lambda
+        K <- cv_result$opt_min$rank
+        
+        # Fit the model using the optimal lambda and rank
+        b <- rrda.fit(Y = Y_train, X = X_train, lambda = L, nrank = K,scale.X = F,scale.Y = F)
+        
+        # Predict Y using the fitted model
+        pred_Y <- rrda.predict(b, X_test, lambda = L, nrank = K)[[1]][[1]][[1]]
+        pred_Yall[rn,]<- pred_Y
+        setTxtProgressBar(pb, rn)
+        }
+        close(pb)
+        
+        PY<-list(pred_Yall=pred_Yall,Y=Y)
+        saveRDS(PY,here("out","Soy",cd,paste0("Pred_X=", X_names[i], "Y=", Y_names[j],cd,"gm2019_LOO_meta_3k.RDS")))
+        Y <- PY$Y
+        pred_Yall <- PY$pred_Yall
+        
+        cor<-diag(cor(Y,pred_Yall))
+        cmat[k,]<-cor
+        }
+saveRDS(cmat,here("out","Soy",cd,"cor_gm2019_LOO_meta_3k.RDS"))
+```
+
+

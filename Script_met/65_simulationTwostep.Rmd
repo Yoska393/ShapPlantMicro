@@ -1,0 +1,753 @@
+---
+title: "65_simulationofTwostep"
+date: "2024-06-25"
+output: pdf_document
+---
+
+simulation for two step 
+
+
+
+```{r,message=F,include=FALSE,echo=FALSE}
+library(purrr)
+library(corrplot)
+source("Script/MyFunctions.R")
+library(DiagrammeR)
+library(tictoc)
+library(doSNOW)
+library(ranger)
+library(here)
+library(psych)
+library(MASS)
+library(rrBLUP)
+```
+
+```{R,eval=T,include=F,echo=T}
+diagram <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A [fillcolor = white];
+    B  [fillcolor = white];
+    C  [fillcolor = orange];
+    D  [fillcolor = gray];
+
+    A -> C
+    D -> C
+    A -> B
+    B -> C
+    D -> B
+
+  }
+")
+
+diagram
+
+
+
+
+diagram2 <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A  [fillcolor = white];
+    B  [fillcolor = white];
+    Bpred [fillcolor = lightcoral];
+    C  [fillcolor = orange];
+    D  [fillcolor = gray];
+
+    A -> Bpred [color = lightcoral]
+    A -> C
+    Bpred -> C  [color = lightcoral]
+    D -> C [style = dashed, arrowhead = vee]
+    A -> B
+    B -> C
+    D -> B [style = dashed, arrowhead = vee]
+  }
+")
+
+diagram2
+
+
+
+diagram2 <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled, fontname = \"Times-Roman\"]
+    A  [fillcolor = white];
+    B  [fillcolor = white];
+    Bpred [fillcolor = lightcoral];
+    C  [fillcolor = orange];
+    D  [fillcolor = gray];
+
+    A -> Bpred [color = lightcoral]
+    A -> C
+    Bpred -> C  [color = lightcoral]
+    D -> C [style = dashed, arrowhead = vee]
+    A -> B
+    B -> C
+    D -> B [style = dashed, arrowhead = vee]
+  }
+")
+
+diagram2
+
+diagram2n <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A  [fillcolor = white, label = \"\"];
+    B  [fillcolor = white, label = \"\"];
+    Bpred [fillcolor = lightcoral, label = \"\"];
+    C  [fillcolor = orange, label = \"\"];
+    D  [fillcolor = gray, label = \"\"];
+
+    A -> Bpred [color = lightcoral]
+    A -> C
+    Bpred -> C  [color = lightcoral]
+    D -> C [style = dashed, arrowhead = vee]
+    A -> B
+    B -> C
+    D -> B [style = dashed, arrowhead = vee]
+  }
+")
+
+diagram2n
+
+diagram3 <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A [fillcolor = white];
+    Bpred[fillcolor = lightcoral];
+    C  [fillcolor = orange] ;
+    A -> Bpred  [color = lightcoral]
+    A -> C
+    Bpred -> C [color = lightcoral]
+  }
+")
+
+diagram3
+
+diagram3n <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A [fillcolor = white, label = \"\"];
+    Bpred [fillcolor = lightcoral, label = \"\"];
+    C [fillcolor = orange, label = \"\"];
+
+    A -> Bpred [color = lightcoral]
+    A -> C
+    Bpred -> C [color = lightcoral]
+  }
+")
+
+diagram3n
+
+diagram4 <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A1  [fillcolor = white];
+    B  [fillcolor = white];
+    Bpred [fillcolor = lightcoral];
+    C  [fillcolor = orange];
+    A2  [fillcolor = white];
+    D  [fillcolor = gray];
+    
+    A1 -> Bpred [color = lightcoral]
+    A2 -> Bpred [color = lightcoral]
+    A1 -> C
+    Bpred -> C  [color = lightcoral]
+    A2 -> C
+    A1 -> B
+    B -> C
+    A2 -> B
+    D -> B [style = dashed, arrowhead = vee]
+    D -> C [style = dashed, arrowhead = vee]
+  }
+")
+
+diagram4
+
+diagram5 <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    A1  [fillcolor = white];
+    B  [fillcolor = white];
+    C  [fillcolor = orange];
+    A2  [fillcolor = white];
+    D  [fillcolor = gray];
+    
+    A1 -> C
+    A2 -> C
+    A1 -> B
+    B -> C
+    A2 -> B
+    D -> B [style = dashed, arrowhead = vee]
+    D -> C [style = dashed, arrowhead = vee]
+  }
+")
+
+diagram5
+
+diagram3x <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    G [fillcolor = white];
+    Met[fillcolor = lightcoral];
+    Pheno  [fillcolor = orange];
+
+    G -> Met  [color = lightcoral];
+    G -> Pheno [];
+    Met -> Pheno [color = lightcoral];
+  }
+")
+
+diagram3x
+
+
+```
+
+
+```{R}
+rrdag <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    G  [fillcolor = white];
+    Micro  [fillcolor = white];
+    Pheno  [fillcolor = orange];
+    L [fillcolor = lightcoral];
+
+    // Multiple arrows from G to L
+    G -> L;
+
+
+
+    // Multiple arrows from Micro to L
+    Micro -> L;
+
+
+    // Multiple arrows from L to Pheno
+    L -> Pheno;
+
+  }
+")
+rrdag
+```
+```{r}
+rrdag <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    node [shape = circle, fixedsize = true, style = filled]
+    nodesep = 0.2;
+    ranksep = 0.7;
+    
+    G  [fillcolor = white];
+    Micro  [fillcolor = white];
+    Pheno  [fillcolor = orange];
+
+    // Smaller L1, L2, L3 nodes with smaller font
+    L1 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+    L2 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+    L3 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+
+    // Connections from G to L1, L2, L3
+    G -> L1 [arrowsize=0.3, penwidth=0.5];
+    G -> L2 [arrowsize=0.3, penwidth=0.5];
+    G -> L3 [arrowsize=0.3, penwidth=0.5];
+
+    // Connections from Micro to L1, L2, L3
+    Micro -> L1 [arrowsize=0.3, penwidth=0.5];
+    Micro -> L2[arrowsize=0.3, penwidth=0.5];
+    Micro -> L3[arrowsize=0.3, penwidth=0.5];
+
+    // Connections from L1, L2, L3 to Pheno
+    L1 -> Pheno;
+    L2 -> Pheno;
+    L3 -> Pheno;
+  }
+")
+rrdag
+
+```
+
+```{r}
+rrdag <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    nodesep = 0.1; // Reduce horizontal distance
+    ranksep = 0.5; // Reduce vertical distance
+
+    node [shape = circle, fixedsize = true, style = filled]
+
+    G  [fillcolor = white];
+    Micro  [fillcolor = white];
+
+    // Smaller L1, L2, L3 nodes with smaller font
+    L1 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+    L2 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+    L3 [fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6];
+
+    // Smaller P1-P5 nodes
+    P1 [fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P2 [fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P3 [fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P4 [fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P5 [fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+
+    // Fix the order of P1-P5
+    {rank=same; P1; P2; P3; P4; P5;}
+
+    // Connections from G to L1, L2, L3
+    G -> L1  [arrowsize=0.5, penwidth=0.5];
+    G -> L2  [arrowsize=0.5, penwidth=0.5];
+    G -> L3  [arrowsize=0.5, penwidth=0.5];
+
+    // Connections from Micro to L1, L2, L3
+    Micro -> L1  [arrowsize=0.5, penwidth=0.5];
+    Micro -> L2  [arrowsize=0.5, penwidth=0.5];
+    Micro -> L3  [arrowsize=0.5, penwidth=0.5];
+
+    // Fully connect L1-L3 to all P1-P5
+    L1 -> P1 [arrowsize=0.5, penwidth=0.5];
+    L1 -> P2 [arrowsize=0.5, penwidth=0.5];
+    L1 -> P3 [arrowsize=0.5, penwidth=0.5];
+    L1 -> P4 [arrowsize=0.5, penwidth=0.5];
+    L1 -> P5 [arrowsize=0.5, penwidth=0.5];
+
+    L2 -> P1 [arrowsize=0.5, penwidth=0.5];
+    L2 -> P2 [arrowsize=0.5, penwidth=0.5];
+    L2 -> P3 [arrowsize=0.5, penwidth=0.5];
+    L2 -> P4 [arrowsize=0.5, penwidth=0.5];
+    L2 -> P5 [arrowsize=0.5, penwidth=0.5];
+
+    L3 -> P1 [arrowsize=0.5, penwidth=0.5];
+    L3 -> P2 [arrowsize=0.5, penwidth=0.5];
+    L3 -> P3 [arrowsize=0.5, penwidth=0.5];
+    L3 -> P4 [arrowsize=0.5, penwidth=0.5];
+    L3 -> P5 [arrowsize=0.5, penwidth=0.5];
+    
+    P1 -> P2 [style=invis];
+    P2 -> P3 [style=invis];
+    P2 -> P3 [style=invis];
+    P3 -> P4 [style=invis];
+    P4 -> P5 [style=invis];
+  
+   
+    
+  }
+")
+rrdag
+
+```
+
+```{r}
+rrdag <- grViz("
+  digraph workflow {
+    rankdir = LR;
+    nodesep = 0.03;
+    ranksep = 0.9;
+
+    node [shape = circle, fixedsize = true, style = filled]
+    G1  [label=\"G\", fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    G2  [label=\"G\",fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    G3  [label=\"G\",fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    d1  [label=\"G\",width=0.05,style=invis]; 
+    G4  [label=\"G\",fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+		
+		d3  [width=0.2,style=invis]; 
+		
+    M1  [label=\"M\",fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    M2  [label=\"M\"fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    M3  [label=\"M\"fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+    d2  [width=0.05,style=invis]; 
+    M4  [label=\"M\"fillcolor = white, width=0.2, height=0.2, fontsize=6,ordering=in];
+
+    L1 [label=\"L\",fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6,ordering=in];
+    L2 [label=\"L\",fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6,ordering=in];
+    d5  [width=0.05,style=invis]; 
+    L3 [label=\"L\",fillcolor = lightcoral, width=0.2, height=0.2, fontsize=6,ordering=in];
+
+    P1 [label=\"P\",fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P2 [label=\"P\",fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P3 [label=\"P\",fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    d4  [width=0.05,style=invis]; 
+    P4 [label=\"P\",fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    P5 [label=\"P\",fillcolor = orange, width=0.2, height=0.1, fontsize=6,ordering=in];
+    
+	 {rank=same; G1; G2; G3; d1; G4; d3; M1; M2; M3; d2; M4;}
+   {rank=same; P1; P2; P3; P4; d4; P5}
+   {rank=same; L1; L2; d5; L3}
+    
+    G1 -> L1  [arrowsize=0, penwidth=0.5];
+    G1 -> L2  [arrowsize=0, penwidth=0.5];
+    G1 -> L3  [arrowsize=0, penwidth=0.5];
+    G2 -> L1  [arrowsize=0, penwidth=0.5];
+    G2 -> L2  [arrowsize=0, penwidth=0.5];
+    G2 -> L3  [arrowsize=0, penwidth=0.5];
+    G3 -> L1  [arrowsize=0, penwidth=0.5];
+    G3 -> L2  [arrowsize=0, penwidth=0.5];
+    G3 -> L3  [arrowsize=0, penwidth=0.5];
+    G4 -> L1  [arrowsize=0, penwidth=0.5];
+    G4 -> L2  [arrowsize=0, penwidth=0.5];
+    G4 -> L3  [arrowsize=0, penwidth=0.5];
+   
+
+    M1 -> L1  [arrowsize=0, penwidth=0.5];
+    M1 -> L2  [arrowsize=0, penwidth=0.5];
+    M1 -> L3  [arrowsize=0, penwidth=0.5];
+    M2 -> L1  [arrowsize=0, penwidth=0.5];
+    M2 -> L2  [arrowsize=0, penwidth=0.5];
+    M2 -> L3  [arrowsize=0, penwidth=0.5];
+    M3 -> L1  [arrowsize=0, penwidth=0.5];
+    M3 -> L2  [arrowsize=0, penwidth=0.5];
+    M3 -> L3  [arrowsize=0, penwidth=0.5];
+    M4 -> L1  [arrowsize=0, penwidth=0.5];
+    M4 -> L2  [arrowsize=0, penwidth=0.5];
+    M4 -> L3  [arrowsize=0, penwidth=0.5];
+
+
+    L1 -> P1 [arrowsize=0.3, penwidth=0.5];
+    L1 -> P2 [arrowsize=0.3, penwidth=0.5];
+    L1 -> P3 [arrowsize=0.3, penwidth=0.5];
+    L1 -> P4 [arrowsize=0.3, penwidth=0.5];
+    L1 -> P5 [arrowsize=0.3, penwidth=0.5];
+
+    L2 -> P1 [arrowsize=0.3, penwidth=0.5];
+    L2 -> P2 [arrowsize=0.3, penwidth=0.5];
+    L2 -> P3 [arrowsize=0.3, penwidth=0.5];
+    L2 -> P4 [arrowsize=0.3, penwidth=0.5];
+    L2 -> P5 [arrowsize=0.3, penwidth=0.5];
+
+    L3 -> P1 [arrowsize=0.3, penwidth=0.5];
+    L3 -> P2 [arrowsize=0.3, penwidth=0.5];
+    L3 -> P3 [arrowsize=0.3, penwidth=0.5];
+    L3 -> P4 [arrowsize=0.3, penwidth=0.5];
+    L3 -> P5 [arrowsize=0.3, penwidth=0.5];
+    
+    G3 -> d1 [style=invis];
+    M3 -> d2 [style=invis];
+    G4 -> d3 [style=invis];
+    P4 -> d4 [style=invis];
+    L1 -> d4 [style=invis];
+    L2 -> d4 [style=invis];
+		L3 -> d4 [style=invis];
+		
+		L2->d5  [width=0.05,style=invis]; 
+  }
+")
+rrdag
+
+```
+
+
+# simulation 1
+
+```{r,include=TRUE, fig.align = 'center', out.width = "40%",echo=FALSE}
+knitr::include_graphics("/Users/hayatoyoshioka/Documents/R/HayatoINRAE/pdf/abcdbpred.png", error = FALSE)
+```
+
+Toy Simulation
+
+$$
+A_{n\times a} \sim \mathcal{N}\left(0, \frac{1}{a}\right), D_{n \times d} \sim \mathcal{N}\left(0, \frac{1}{d}\right)
+$$
+$$
+B_{n\times b}  = A  \theta_a +   D \theta_d+ \epsilon
+$$
+$$
+C_{n\times c}  = A \theta_a  + B\theta_b +  D \theta_d + \epsilon
+$$
+where
+$$
+\theta_a, \theta_b, \theta_d \sim \mathcal{U}(-1, 1)
+$$
+
+# Data Generate 
+```{R,fig.dim = c(4, 4),include=T,eval=T}
+# Generate X
+set.seed(123)
+
+n <- 100 #Samples
+a <- 10
+#a2<- 20
+b <- 10
+c <- 10
+d <- 10
+
+w <- 1
+
+fol<-paste0("out/TSS/TSS","nabcd",n,a,b,c,d)
+
+if (!dir.exists(fol)) {
+  dir.create(fol)
+}
+
+if (!dir.exists(paste0(fol,"/pdf"))) {
+  dir.create(paste0(fol,"/pdf"))
+}
+
+
+theta.ab <- matrix(runif(a*b,-w,w),a,b)
+theta.ac <- matrix(runif(a*c,-w,w),a,c)
+
+#theta.a2b <- matrix(runif(a2*b,-w,w),a2,b)
+#theta.a2c <- matrix(runif(a2*c,-w,w),a2,c)
+
+theta.bc <- matrix(runif(b*c, -w,w),b,c)
+
+theta.db <- matrix(runif(d*b,-w,w),d,b)
+theta.dc <- matrix(runif(d*c,-w,w),d,c)
+
+noise.B <- matrix(rnorm(n = n*b, mean = 0, sd = 0.1),n,b)
+noise.C <- matrix(rnorm(n = n*c, mean = 0, sd = 0.1),n,c)
+
+A <- matrix(rnorm(n = n*a, mean = 0, sd = 1 / (a**(1/2))),n,a)
+#A2 <- matrix(rnorm(n = n*a2, mean = 0, sd = 1 / (a2**(1/2))),n,a2)
+D <- matrix(rnorm(n = n*d, mean = 0, sd = 1 / (d**(1/2))),n,d)
+B <- scale(scale(A %*% theta.ab + D %*% theta.db) + noise.B)
+B <- B / (b**(1/2))
+C <- scale(A %*% theta.ac + B %*% theta.bc + D %*% theta.dc) + noise.C
+
+# for the next simulation
+#B2 <- scale(scale(A %*% theta.ab + A2 %*% theta.a2b + D %*% theta.db) + noise.B)
+#B2 <- B2 / (b**(1/2))
+#C2 <- scale(A %*% theta.ac + A2 %*% theta.a2c + B2 %*% theta.bc + D %*% theta.dc) + noise.C
+
+
+plot(B,scale(A %*% theta.ab))
+plot(B,scale (D %*% theta.db))
+plot(B,scale(A %*% theta.ab + D %*% theta.db))
+plot(C,A %*% theta.ac)
+plot(C,D %*% theta.dc)
+plot(C,B %*% theta.bc)
+plot(C,A %*% theta.ac +  B %*% theta.bc)
+
+boxplot(diag(cor(B,A %*% theta.ab)), main=expression(paste("COR between B and A", theta[ab])))
+
+boxplot(diag(cor(B,A %*% theta.ab)), main=expression(paste("COR between B and A", theta[ab])),cex.main=1.4,ylim=c(0.3,0.9))
+# hist(A)
+# hist(B)
+# hist(C)
+# hist(D)
+
+file_path <- paste0(fol,"/pdf/Atheta.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5) 
+#png(file = file_path, width = 2900, height =1800, res = 400)
+# Create the boxplot
+
+v1<-diag(cor(B,A %*% theta.ab))
+v2<-diag(cor(B,A %*% theta.ab + D %*% theta.db))
+
+
+boxplot(c(v1,v2), main="Bpred by true value",cex.main=1.4,ylim=c(0.05,0.9))
+
+l1<-expression(paste("A", theta[ab]))
+l2<-expression(paste("A", theta[ab]," + D", theta[db]))
+
+dev.off()
+
+
+v1<-diag(cor(B,A %*% theta.ab))
+v2<-diag(cor(B,A %*% theta.ab + D %*% theta.db))
+
+boxplot(list(v1, v2), main=expression(paste("Bpred by true value")), 
+        cex.main=1.4, ylim=c(0.05, 1), 
+        names=c(expression(paste("A", theta[ab])), 
+                expression(paste("A", theta[ab], " + D", theta[db]))))
+l1<-expression(paste("A", theta[ab]))
+l2<-expression(paste("A", theta[ab]," + D", theta[db]))
+
+
+```
+
+
+```{r}
+tr(crossprod(B,B))
+tr(crossprod(A,A))
+tr(crossprod(D,D))
+```
+
+# test
+
+# predict B
+
+```{r, message =F, include=TRUE,eval=FALSE}
+AD = list(A=A,D=D)
+RFlist <- list(A=list(A=A),D=list(D=D),AD=AD)
+
+Y <- B
+
+tic()
+res <- getRF(RFlist,Y)
+toc()
+
+saveRDS(res,paste0(fol,"/","resb_adad"))
+```
+
+```{r, message =F, include=TRUE}
+res<- readRDS(paste0(fol,"/","resb_adad"))
+
+file_path <- paste0(fol,"/pdf/boxplot.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5) 
+#png(file = file_path, width = 2900, height =1800, res = 400)
+# Create the boxplot
+boxplot(res, 
+        main="Bpred fitting by", cex.main=1.4, ylim=c(0.05, 0.9)
+				#,names=c(l1,rownames(res$resultEachModel))
+				)
+# Close the PDF device
+dev.off()
+boxplot(t(res$resultEachModel), main="Bpred fitting by",cex.main=1.4,ylim=c(0.05,0.9))
+
+v1<-diag(cor(B,A %*% theta.ab)) #value
+l1<-expression(paste("A", theta[ab])) #label
+
+res4<-cbind(v1,t(res$resultEachModel))
+
+# 既存のボックスプロットとv1を一緒にプロット
+boxplot(res, 
+        main="Bpred fitting by", cex.main=1.4, ylim=c(0.05, 0.9), 
+        names=c(l1,rownames(res$resultEachModel)))
+```
+
+
+```{r, message =F, include=TRUE,eval=FALSE}
+res<- readRDS(paste0(fol,"/","resb_adad"))
+Bpred <- matrix(NA, nrow = nrow(Y), ncol = ncol(Y))
+for (i in 1:ncol(Y)){
+Bpred[,i] <- res$y.pred.list[[i]][,"A"]
+}
+saveRDS(Bpred,paste0(fol,"/","Bpred"))
+```
+
+```{r}
+Bpred<- readRDS(paste0(fol,"/","Bpred"))
+```
+
+ABpred
+
+```{r, message =F, include=TRUE,eval=FALSE}
+AB  <- list(A=A,B=B)
+ABpred <- list(A=A, Bpred=Bpred)
+RFlist <- list(A=list(A=A),ABpred=ABpred)
+
+Y <- C
+tic()
+res <- getRF(RFlist,Y)
+toc()
+
+saveRDS(res,paste0(fol,"/","res_abpred"))
+```
+
+```{r, message =F, include=TRUE}
+res<- readRDS(paste0(fol,"/","res_abpred"))
+
+file_path <- paste0(fol,"/pdf/boxplot4.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5) 
+#png(file = file_path, width = 2900, height =1800, res = 400)
+# Create the boxplot
+boxplot(t(res$resultEachModel), main="Bpred fitting by")
+
+# Close the PDF device
+dev.off()
+boxplot(t(res$resultEachModel), main="Bpred fitting by")
+
+```
+# predict C
+
+```{r, message =F, include=TRUE,eval=FALSE}
+AB  <- list(A=A,B=B)
+ABpred <- list(A=A, Bpred=Bpred)
+ABD <- list(A=A, B=B, D=D)
+RFlist <- list(A=list(A=A),B=list(B=B),Bpred=list(Bpred=Bpred),D=list(D=D),AB=AB,ABpred=ABpred,ABD=ABD)
+
+Y <- C
+tic()
+res <- getRF(RFlist,Y)
+toc()
+
+saveRDS(res,paste0(fol,"/","res_abbdababd"))
+```
+
+```{r,eval=FALSE}
+RFlist <- list(Bpred_B=list(Bpred=Bpred))
+
+Y <- C
+
+tic()
+res2 <- getRF(RFlist,Y,dummy="Bpred",Tv=B)
+toc()
+saveRDS(res2,paste0(fol,"/","res_bpred_b"))
+```
+
+
+
+```{r}
+res<- readRDS(paste0(fol,"/","res_abbdababd"))
+res2<- readRDS(paste0(fol,"/","res_bpred_b"))
+
+res12_all<- rbind(data.frame(res$resultEachModel),data.frame(res2$resultEachModel))
+
+file_path <- paste0(fol,"/pdf/boxplot2.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5)
+
+# Create the boxplot
+boxplot(t(res12_all),main="Cpred fitting",cex.main=1.4,ylim=c(0.05,0.9))
+
+# Close the PDF device
+dev.off()
+
+file_path <- paste0(fol,"/pdf/boxplot2nb.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5) 
+
+# Create the boxplot
+boxplot(t(res$resultEachModel),main="Cpred fitting by",cex.main=1.4,ylim=c(0.05,0.9))
+
+# Close the PDF device
+dev.off()
+
+
+file_path <- paste0(fol,"/pdf/boxplot4ab.pdf")
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5)
+
+# Create the boxplot
+boxplot(t(res12_all[c(1,6),]),main="Cpred fitting by")
+# Close the PDF device
+dev.off()
+
+
+
+boxplot(t(res$resultEachModel),main="Cpred fitting by",cex.main=1.4,ylim=c(0.05,0.9))
+boxplot(t(res12_all),main="Cpred fitting by",cex.main=1.4,ylim=c(0.05,0.9))
+boxplot(t(res12_all[c(1,6),]),main="Cpred fitting by",cex.main=1.4,ylim=c(0.05,0.9))
+
+
+#res$resultEachModel
+#res2$resultEachModel
+
+res12<- rbind(data.frame(res$resultEachModel)[3,],data.frame(res2$resultEachModel))
+
+file_path <- paste0(fol,"/pdf/boxplot3.pdf")
+
+# Open a PDF device
+pdf(file = file_path, width = 8, height = 5) 
+
+boxplot(t(res12),main="Cpred fitting by",cex.main=1.4,ylim=c(-0.05,0.9))
+
+# Close the PDF device
+dev.off()
+
+boxplot(t(res12),main="Cpred fitting by",cex.main=1.4,ylim=c(-0.05,0.9))
+```

@@ -1,0 +1,311 @@
+
+
+```{r, message =F}
+require(BGLR)
+require(here)
+require(ggplot2)
+require(reshape2)
+require(gridExtra)
+library(readr)
+library(stringr)
+library(ggsci)
+library(RAINBOWR)
+library(lubridate)
+```
+
+
+```{r, message =F}
+# save or read the seed
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+
+
+```{r}
+pheno19 <- read.csv(here("data", "shoot_blup_all_2019.csv"), row.names = 1)
+pheno20 <- read.csv(here("2020", "shoot_blup_all_2020.csv"), row.names = 1)
+
+plot19<-rownames(pheno19)
+plot20<-rownames(pheno20)
+```
+
+
+```{r}
+grm <- readRDS(here("data", "grm_2.rds"))
+head(grm)[,1:3]
+```
+
+```{r}
+met<- read.csv(here("2019","2019_Tottori_Jul_RootMetabolome_X.csv"))
+rownames(met) <- paste0(substr(as.matrix(met[7]),1,2),".",sprintf("%03d",as.matrix(met[8])))
+met19 <- met[,10:ncol(met)]
+colnames(met19)<- sub("M","X",colnames(met19))
+
+met <- read.csv(here("2020", "2020_Tottori_Main_RootMetabolome.csv"))
+rownames(met) <- paste0(substr(as.matrix(met[7]),1,2),".",sprintf("%03d",as.matrix(met[8])))
+met20 <- met[,10:ncol(met)]
+
+s_c <- colnames(met19) %in% colnames(met20)
+met19<- met19[,s_c]
+s_c <- colnames(met20) %in% colnames(met19)
+met20<- met20[,s_c]
+#table(colnames(met20) == colnames(met19))
+```
+
+
+```{r}
+com <- read.csv(here("dataFromRiken", "table-from-biom-7.csv"), row.names = 1)
+rownames(com) <- gsub(";",".",rownames(com))
+com19<- com
+
+#comriken <- read.csv(here("2020", "table-from-biom-7-2020-after.csv"))
+com <- read.csv(here("2020", "2020_Tottori_Main_Microbiome_Ratio.csv"))
+rownames(com) <- paste0(substr(as.matrix(com[7]),1,2),".",sprintf("%03d",as.matrix(com[8])))
+com <- com[,10:ncol(com)]
+com20 <- t(com)
+
+
+#s_c <- rownames(com19) %in% rownames(com20)
+#com19<- com19[s_c,]
+#s_c <- rownames(com20) %in% rownames(com19)
+#com20<- com20[s_c,]
+
+s_c <- colnames(com19) %in% colnames(com20)
+com19<- com19[,s_c]
+s_c <- colnames(com20) %in% colnames(com19)
+com20<- com20[,s_c]
+
+dim(com19)
+dim(com20)
+
+```
+
+```{r}
+CD ="W4"
+```
+
+```{r}
+selector.grm <- pheno19$var.id %in% rownames(grm)
+selector.com <-rownames(pheno19) %in% colnames(com19) 
+
+pl<- list(pheno19,pheno20)
+pl.sel<- list()
+
+for (i in 1:2){
+pheno<- pl[[i]]
+pheno.sel <- pheno[selector.grm & selector.com, ]
+#head(pheno.sel)
+print(dim(pheno.sel))
+
+selector.cd <- substr(rownames(pheno.sel), 1, 2) == CD
+pheno.sel.cd <- pheno.sel[selector.cd, ]
+dim(pheno.sel.cd)
+
+plot.id <- rownames(pheno.sel.cd)
+rownames(pheno.sel.cd)<-pheno.sel.cd$var.id
+pheno.sel.cd$var.id <- plot.id
+colnames(pheno.sel.cd)[1]<- "plot.id"
+sg <- rownames(grm) %in% rownames(pheno.sel.cd)
+gv<-rownames(grm[sg,sg])
+pheno.sel.cd<- pheno.sel.cd[gv,]
+print(dim(pheno.sel.cd))
+pl.sel[[i]]<- pheno.sel.cd
+}
+
+psc19<-  pl.sel[[1]] 
+psc20<-  pl.sel[[2]]
+
+s_p <- rownames(psc19) %in% rownames(psc20)
+psc19<- psc19[s_p,]
+s_p <- rownames(psc20) %in% rownames(psc19)
+psc20<- psc20[s_p,]
+
+s_p <- colnames(psc19) %in% colnames(psc20)
+psc19<- psc19[,s_p]
+s_p <- colnames(psc20) %in% colnames(psc19)
+psc20<- psc20[,s_p]
+
+table(rownames(psc19) == rownames(psc20))
+
+```
+
+
+
+```{r}
+var.id <- rownames(psc19)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc19$plot.id
+com19.cd <- t(com19[, plot.id])
+com19.cd <- scale(com19.cd[, apply(com19.cd, 2, sd) > 0])
+#met19ns.cd <- met19[plot.id, ]
+met19.cd <- scale(met19[plot.id, ])
+```
+
+```{r, message =F}
+var.id <- rownames(psc20)
+grm.cd <- grm[var.id, var.id]
+plot.id  <- psc20$plot.id
+com20.cd <- t(com20[, plot.id])
+com20.cd <- scale(com20.cd[, apply(com20.cd, 2, sd) > 0])
+#met20ns.cd <- met20[plot.id, ]
+met20.cd <- scale(met20[plot.id, ])
+```
+
+
+```{r, message =F}
+write.csv(met19.cd,here("2019","met19d.csv"))
+write.csv(met20.cd,here("2020","met20d.csv"))
+```
+
+```{r, message =F}
+psc <- rbind(psc19,psc20)
+
+s_c <- colnames(com19.cd) %in% colnames(com20.cd)
+com19.cd<- com19.cd[,s_c]
+s_c <- colnames(com20.cd) %in% colnames(com19.cd)
+com20.cd<- com20.cd[,s_c]
+
+s_c <- colnames(com19.cd) %in% colnames(com20.cd)
+com19.cd<- com19.cd[,s_c]
+s_c <- colnames(com20.cd) %in% colnames(com19.cd)
+com20.cd<- com20.cd[,s_c]
+
+mrm19.cd <- tcrossprod(com19.cd) / ncol(com19.cd)
+mrm20.cd <- tcrossprod(com20.cd) / ncol(com20.cd)
+
+com.cd<- rbind(com19.cd,com20.cd)
+rownames(com.cd)<-rownames(psc)
+mrm.cd <- tcrossprod(com.cd) / ncol(com.cd)
+
+metrm19.cd <- tcrossprod(met19.cd) / ncol(met19.cd)
+metrm20.cd <- tcrossprod(met20.cd) / ncol(met20.cd)
+
+#metns.cd <- rbind(met19ns.cd,met20ns.cd)
+met.cd<- rbind(met19.cd,met20.cd)
+rownames(met.cd)<-rownames(psc)
+metrm.cd <- tcrossprod(met.cd) / ncol(met.cd)
+```
+
+
+
+
+```{r, message =F}
+K1 <- cbind(rbind(grm.cd,grm.cd),rbind(grm.cd,grm.cd))
+K2 <- mrm.cd
+
+Z <- design.Z(pheno.labels = rownames(psc),geno.names = rownames(psc))
+
+KZ1<- list(A= list(K = K1, Z = Z))
+KZ2<- list(A= list(K = K2, Z = Z))
+KZ12<- list(A= list(K = K1, Z = Z),B= list(K = K2, Z = Z))
+
+```
+
+
+```{R,eval = FALSE}
+y <- met.cd
+
+predmet<-matrix(NA,nrow(y)/2,ncol(y)) 
+rownames(predmet) <- var.id
+colnames(predmet) <- colnames(y)
+
+ZETA <- KZ12
+X0 <- NULL
+
+for (i in 1:ncol(y)){
+#for (i in 1:2){
+trait.name <- colnames(y)[i]
+print(c(i,"/",ncol(y)))
+print(trait.name)
+  # prepare the prediction box
+  predictionDataRAINBOW <- rep(NA, nrow(y)/2)
+   
+
+    yNa <- y[,i]
+    yNa[(nrow(y)/2+1):nrow(y)] <- NA
+    # RAINBOWR
+    resEM3 <- EM3.cpp(y = yNa,
+                      X0 = X0, n.core = 1, 
+                      ZETA = ZETA)
+    # input the predicted data
+    predictionDataRAINBOW <- resEM3$y.pred[(nrow(y)/2+1):nrow(y)]
+  
+  # resEM3$weights
+  predmet[,i]<- predictionDataRAINBOW
+  
+}
+See(predmet)
+
+```
+
+```{R,eval = FALSE}
+write.csv(predmet,here("2020","2020_predmet_blup_from2019_GM2.csv"))
+```
+
+```{R,eval = FALSE}
+y <- met.cd
+
+predmet<-matrix(NA,nrow(y)/2,ncol(y)) 
+rownames(predmet) <- var.id
+colnames(predmet) <- colnames(y)
+
+ZETA <- KZ1
+X0 <- NULL
+
+for (i in 1:ncol(y)){
+#for (i in 1:2){
+trait.name <- colnames(y)[i]
+print(c(i,"/",ncol(y)))
+print(trait.name)
+  # prepare the prediction box
+  predictionDataRAINBOW <- rep(NA, nrow(y)/2)
+   
+
+    yNa <- y[,i]
+    yNa[(nrow(y)/2+1):nrow(y)] <- NA
+    # RAINBOWR
+    resEM3 <- EM3.cpp(y = yNa,
+                      X0 = X0, n.core = 1, 
+                      ZETA = ZETA)
+    # input the predicted data
+    predictionDataRAINBOW <- resEM3$y.pred[(nrow(y)/2+1):nrow(y)]
+  
+  # resEM3$weights
+  predmet[,i]<- predictionDataRAINBOW
+  
+}
+See(predmet)
+```
+
+
+```{R,eval = FALSE}
+write.csv(predmet,here("2020","2020_predmet_blup_from2019_G2.csv"))
+```
+
+
+```{R figs,include=TRUE,fig.dim = c(5.4,7.2) ,fig.cap="\\label{fig:figs}Met Prediction (Correlation Coefficients). Top is Inter-Year Model (2020 Met predicted from G in 2019); Middle is Inter-Model (2020 Met predicted from G and Micro in 2019); Bottom is One-Year Model (2020 Met predicted from G and Micro in 2019 or 2020)"}
+par(mfrow = c(3, 1))
+pm20f19<- read.csv(here("2020","2020_predmet_blup_from2019_G2.csv"),row.names = 1)
+cor<- cor(pm20f19,met20.cd)
+Predmet_20from19_COR_G<- diag(cor)
+hist(Predmet_20from19_COR_G,xlim =c(-1,1),ylim=c(0,100),breaks=10,xlab = "PredMet20from19")
+
+pm20f19<- read.csv(here("2020","2020_predmet_blup_from2019_GM2.csv"),row.names = 1)
+cor<- cor(pm20f19,met20.cd)
+Predmet_20from19_COR_GM<- diag(cor)
+hist(Predmet_20from19_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=10,xlab = "PredMet20from19")
+
+predmet20 <- read.csv(here("2020", "2020_predmet_blup.csv"), row.names = 1)
+cor<- cor(predmet20,met20.cd)
+Predmet_20from20_COR_GM<- diag(cor)
+hist(Predmet_20from20_COR_GM,xlim =c(-1,1),ylim=c(0,100),breaks=20,xlab = "PredMet20from20")
+```
+
+

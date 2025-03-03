@@ -1,0 +1,192 @@
+
+```{r,message=F,include=FALSE,echo=FALSE}
+library(purrr)
+library(stringr)
+library(dplyr)
+library(corrplot)
+source("Script/MyFunctions.R")
+library(RAINBOWR)
+library(DiagrammeR)
+library(tictoc)
+library(doSNOW)
+library(ranger)
+library(here)
+library(psych)
+library(doFuture)
+library(MASS)
+library(rrBLUP)
+require(ranger)
+library(doSNOW)
+#library(sigmoid)
+```
+
+
+
+```{r}
+# Setup before loop
+set.seed(123)
+n <- 30
+a <- 10
+b <- 10
+c <- 10
+d <- 10
+ws<- -1
+w <- 1
+model <- "linear" 
+
+# Create directories if they don't exist
+base_fol <- "out/TSS/dummyB4/"
+dir.create(base_fol, showWarnings = FALSE, recursive = TRUE)
+# Assuming folder creation is required only once
+cv<-c()
+cvv<-c()
+# Loop over 100 iterations
+for (iteration in 1:10) {
+ print(iteration)
+  fol <- paste0(base_fol, "TSS_",model,"_nabcd_iter", iteration, "_", n, a, b, c, d)
+  
+  # Ensure directories for each iteration
+  dir.create(fol, showWarnings = FALSE, recursive = TRUE)
+  dir.create(paste0(fol, "/pdf"), showWarnings = FALSE, recursive = TRUE)
+
+  data <- simdata5(n=n, a=a, b=b, c=c, d=d, ws=ws, w=w, model=model)
+  
+  
+  A <- data$A
+  B <- data$B
+  C <- data$C
+  D <- data$D
+  
+  
+  # Prediction and saving results
+  RFlist <- list(A=list(A=A))
+  Y <- B
+  res <- getRF(RFlist, Y)
+  
+  saveRDS(res, paste0(fol, "/resb_a"))
+  
+  # Generate boxplot for this iteration
+  file_path <- paste0(fol,"/pdf/boxplot_iteration_", iteration, ".pdf")
+  pdf(file = file_path, width = 8, height = 5)
+  boxplot(t(res$resultEachModel), main=paste("Bpred fitting by - Iteration", iteration))
+  dev.off()
+  
+  Bpred <- matrix(NA, nrow = nrow(Y), ncol = ncol(Y))
+  for (i in 1:ncol(Y)) {
+    Bpred[,i] <- res$y.pred.list[[i]][,"A"]
+  }
+  saveRDS(Bpred, paste0(fol, "/Bpred_A"))
+  
+  Bpred<- readRDS(paste0(fol,"/","Bpred_A"))
+
+  #RFlist <- list(A=list(A=A),B=list(B=B),Bpred=list(Bpred=Bpred),D=list(D=D),AB=AB,ABpred=ABpred,ABD=ABD)
+  RFlist <- list(B=list(B=B),Bpred=list(Bpred=Bpred))
+  
+  Y <- C
+  tic()
+  res <- getRF(RFlist,Y)
+  toc()
+
+  saveRDS(res,paste0(fol,"/","res_bpred"))
+  
+  RFlist <- list(Bpred_B=list(Bpred=Bpred))
+
+  Y <- C
+  
+  tic()
+  res2 <- getRF(RFlist,Y,dummy="Bpred",Tv=B)
+  toc()
+  saveRDS(res2,paste0(fol,"/","res_bpred_b"))
+  
+  res12_all<- rbind(data.frame(res$resultEachModel),data.frame(res2$resultEachModel))
+
+  cor10<-t(res12_all)
+  cvv<-rbind(cvv,cor10)
+  corm<-rowMeans(res12_all)
+  cv<-rbind(cv,corm)
+}
+
+saveRDS(cvv,paste0(base_fol,"/",model,"cpcor10"))
+saveRDS(cv,paste0(base_fol,"/",model,"cpcorm"))
+
+cvv<-readRDS(paste0(base_fol,"/",model,"cpcor10"))
+cv <-readRDS(paste0(base_fol,"/",model,"cpcorm"))
+
+boxplot(cvv)
+boxplot(cv)
+
+#boxplot(cvv[,c(-8)],main="C Prediction",ylab="COR",cex.main=1.4,ylim=c(-0.1,1))
+#boxplot(cv[,c(-8)],main="C Prediction",ylab="COR",cex.main=1.4,ylim=c(0.3,0.9))
+
+cvb<-cv[,c(2,3)]
+cvvb<-cvv[,c(2,3)]
+
+max_cv <- max(cvb, na.rm = TRUE)
+min_cv <- min(cvb, na.rm = TRUE)
+# Create the plot using the max and min for x and y limits
+plot(cvb, xlim = c(min_cv, max_cv), ylim = c(min_cv, max_cv), 
+     main = "COR")
+
+# Add the 45-degree line
+abline(0, 1, col = "red")
+
+max_cvv <- max(cvvb, na.rm = TRUE)
+min_cvv <- min(cvvb, na.rm = TRUE)
+
+# Create the plot using the max and min for x and y limits
+plot(cvvb, xlim = c(min_cvv, max_cvv), ylim = c(min_cvv, max_cvv), 
+     main = "COR"
+     #, xlab = "A", ylab = "ABpred"
+     )
+
+# Add the 45-degree line
+abline(0, 1, col = "red")
+
+table((cv[,1]-cv[,2])>0)
+
+```
+
+
+```{r, fig.width=5, fig.height=5}
+base_fol <- "out/TSS/dummyB4/"
+model="linear"
+
+cvv<-readRDS(paste0(base_fol,"/",model,"cpcor10"))
+cv <-readRDS(paste0(base_fol,"/",model,"cpcorm"))
+
+cvb<-cv[,c(2,3)]
+cvvb<-cvv[,c(2,3)]
+
+
+max_cv <- 0.5
+min_cv <- -0.3
+# Create the plot using the max and min for x and y limits
+plot(cvb[,c(2,1)], xlim = c(min_cv, max_cv), ylim = c(min_cv, max_cv), 
+     main = "C Prediction",ylab="Trained by Bpred", xlab="Trained by True B")
+
+# Add the 45-degree line
+abline(0, 1, col = "red")
+
+print(table((cvb[,1]-cvb[,2]) < 0))
+# max_cvv <- max(cvvb, na.rm = TRUE)
+# min_cvv <- min(cvvb, na.rm = TRUE)
+
+max_cvv <- 1
+min_cvv <- -1
+
+
+plot(cvvb[,c(2,1)], xlim = c(min_cvv, max_cvv), ylim = c(min_cvv, max_cvv), 
+     cex=0.5
+     #, xlab = "A", ylab = "ABpred"
+     )
+
+# Create the plot using the max and min for x and y limits
+plot(cvvb[,c(2,1)], xlim = c(min_cvv, max_cvv), ylim = c(min_cvv, max_cvv), 
+     main = "C Prediction from Bpred",ylab="Trained by Bpred", xlab="Trained by True B",
+     cex=0.5
+     #, xlab = "A", ylab = "ABpred"
+     )
+
+# Add the 45-degree line
+abline(0, 1, col = "red")
+```
