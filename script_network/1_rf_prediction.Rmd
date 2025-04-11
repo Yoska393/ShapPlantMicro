@@ -56,12 +56,13 @@ cd = "Drought"
 
 if (cd == "Drought"){
 	CD<-"W4"
-	Data<-readRDS(here("data/SoyData_Drought.RDS"))
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
 } else if (cd=="Control"){
 	CD<-"W1"
-	Data<-readRDS(here("data/SoyData_Control.RDS"))
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+} else{
+	stop()
 }
-
 
 
 genome<-Data$genome
@@ -79,6 +80,8 @@ met.cd<-scale(met.cd)
 mic.cd <- scale(mic.cd)
 psc19 <- scale(psc19)
 
+dim(mic.cd)
+dim(met.cd)
 
 ```
 
@@ -104,7 +107,8 @@ names(X.list) <- c("G",
 
 ```
 
-```{r}
+```{r,eval=T}
+set.seed(123)
 Y <- psc19
 importance.list <- vector("list", ncol(Y))
 names(importance.list) <- colnames(Y)
@@ -141,17 +145,19 @@ for(i in 1:length(importance.list)) {
 rownames(importance) <- names(importance.list)
 ```
 
-normalize
+normalize (non)
 ```{r}
+imp.norm<-importance
 imp.norm <- diag(1 / apply(importance, 1, sum)) %*% importance
+
 rownames(imp.norm) <- rownames(importance)
 ```
 
 devide
 ```{r}
-imp.g <- imp.norm[, 1:3078]
-imp.m <- imp.norm[, 3079:7849]
-imp.met <- imp.norm[, 7850:8102]
+imp.g <- imp.norm[, 1:ncol(genome)]
+imp.m <- imp.norm[, (ncol(genome)+1):(ncol(genome)+ncol(mic.cd))]
+imp.met <- imp.norm[, (ncol(genome)+ncol(mic.cd)+1):ncol(imp.norm)]
 ```
 
 ## SVD analysis
@@ -188,8 +194,8 @@ head(df)
 g <- ggplot(df, aes(x = LF1, y = LF2, color = Type))
 g <- g + geom_point(shape = 21,alpha=1) 
 g <- g + geom_label_repel(aes(label = Name),
-                  box.padding   = 0.2, 
-                  point.padding = 0.5,
+                  box.padding   = 0.9, 
+                  point.padding = 0.8,
                   segment.color = 'grey50',
                   #max.overlaps = 40,
                   cex=2,alpha=0.9,show.legend= FALSE )
@@ -200,7 +206,15 @@ g
 
 ```{}
 imp_total<-cbind(imp.g,imp.m, imp.met )
-saveRDS(imp_total,here("out","imp_RF.RDS"))
+
+
+if (cd == "Drought"){
+	saveRDS(imp_total,here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	saveRDS(imp_total,here("out","imp_RF2_c.RDS"))
+}
+
+
 ```
 
 ```{r, fig.width = 7, fig.asp = 1}
@@ -216,12 +230,13 @@ g <- ggplot(df, aes(x = LF1, y = LF2, color = Type)) +
   geom_segment(data = df[1:9, ], 
                aes(x = 0, y = 0, xend = LF1, yend = LF2), 
                arrow = arrow(length = unit(0.2, "inches")), 
-               color = "darkgreen", alpha = 0.5) + 
+               color = "darkgreen", alpha = 0.8) + 
 
   geom_label_repel(aes(label = Name),
-                   box.padding = 0.2, 
-                   point.padding = 0.5,
+                   box.padding = 1, 
+                   point.padding = 1,
                    segment.color = 'grey50',
+  								 max.overlaps = 10,
                    cex = 2, alpha = 0.9, show.legend = FALSE) +
 
   geom_point(shape = 21, alpha = 1) +
@@ -234,16 +249,85 @@ g
 ```
 
 
+
+
+```{r, fig.width = 7, fig.asp = 1}
+
+cd<-"Control"
+
+print(cd)
+
+
+if (cd == "Drought"){
+	imp.gm<-readRDS(here("out","imp_RF2_d.RDS"))
+
+} else if (cd=="Control"){
+	imp.gm<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+
+
+#imp.gm <- cbind(imp.g, imp.m,imp.met)
+
+imp.gm <- imp.gm[, colSums(imp.gm) >= 0.005]
+
+res <- svd(imp.gm)
+contr <- res$d / sum(res$d)
+
+
+rownames(res$u) <- rownames(imp.gm)
+rownames(res$v) <- colnames(imp.gm)
+
+ud <- res$u %*% diag(sqrt(res$d))
+vd <- res$v %*% diag(sqrt(res$d))
+
+df.u <- data.frame(ud[, 1:2] , Type = "Phenotype", Name = rownames(ud))
+
+type <- rep("Other", nrow(vd))
+type[substr(rownames(vd), 1,1) == "X"] <- "Metabolome"
+type[substr(rownames(vd), 1,1) == "C"] <- "Genotype"
+type[substr(rownames(vd), 1,1) == "B"] <- "Microbiome"
+df.v <- data.frame(vd[, 1:2], Type = type, Name = rownames(vd))
+df <- data.frame(rbind(df.u, df.v))
+
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+
+head(df)
+
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type)) +
+
+  geom_segment(data = df[1:9, ], 
+               aes(x = 0, y = 0, xend = LF1, yend = LF2), 
+               arrow = arrow(length = unit(0.2, "inches")), 
+               color = "darkgreen", alpha = 0.8) + 
+
+  geom_label_repel(aes(label = Name),
+                   box.padding = 0.5, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50',
+  								 #max.overlaps = 10,
+                   cex = 2, alpha = 0.9, show.legend = FALSE) +
+
+  geom_point(shape = 21, alpha = 1) +
+
+  scale_color_manual(values = c("#FC4E07", "#E7B800", "#00AFBB", "darkgreen"))
+
+g
+
+
+```
+
 ## Met
 
-```{r}
+```{}
 res <- svd(imp.met)
 contr <- res$d / sum(res$d)
 contr
 cumsum(contr)
 ```
 
-```{r}
+```{}
 rownames(res$u) <- rownames(imp.met)
 rownames(res$v) <- colnames(imp.met)
 
@@ -258,7 +342,7 @@ head(df)
 ```
 
 
-```{r}
+```{}
 g <- ggplot(df, aes(x = LF1, y = LF2, color = Type))
 g <- g + geom_point()
 g <- g + geom_label_repel(aes(label = Name),
@@ -274,7 +358,7 @@ g
 # RF for Met 
 
 prepare datasets
-```{r}
+```{}
 X.list <- vector("list", 3)
 X.list[[1]] <- genome
 X.list[[2]] <- mic.cd
@@ -285,7 +369,7 @@ names(X.list) <- c("G",
 ```
 
 
-```{r}
+```{}
 Y <- met.cd[,1:253]
 importance.list <- vector("list", ncol(Y))
 names(importance.list) <- colnames(Y)
@@ -312,7 +396,7 @@ Replace the name of traits
 names(importance.list) <- colnames(Y)
 ```
 
-```{r, fig.height=4, fig.asp = 1}
+```{, fig.height=4, fig.asp = 1}
 importance <- NULL
 for(i in 1:length(importance.list)) {
   importance <- rbind(importance, importance.list[[i]]$GM)
@@ -321,13 +405,13 @@ rownames(importance) <- names(importance.list)
 ```
 
 normalize
-```{r}
+```{}
 imp.norm <- diag(1 / apply(importance, 1, sum)) %*% importance
 rownames(imp.norm) <- rownames(importance)
 ```
 
 devide
-```{r}
+```{}
 
 imp.g <- imp.norm[, 1:ncol(genome)]
 imp.m <- imp.norm[, (ncol(genome)+1):ncol(imp.norm)]
@@ -338,7 +422,7 @@ saveRDS(imp_total,here("out","imp_RF_met.RDS"))
 ```
 ## Micro and Genome
 
-```{r}
+```{}
 imp.gm <- cbind(imp.g, imp.m)
 imp.gm <- imp.gm[, colSums(imp.gm) >= 0.002]
 res <- svd(imp.gm)

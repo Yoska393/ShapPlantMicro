@@ -7,48 +7,27 @@ output: html_document
 
 
 ```{r}
-require(BGLR)
-library(dplyr)
 require(here)
-require(ggplot2)
-require(reshape2)
-library(stringr)
-library(RAINBOWR)
-library(foreach)
-library(future)
-library(doFuture)
-# library(doRNG)
-library(tictoc)
-library(doSNOW)
-library(purrr)
 source("Script/MyFunctions.R")
-
-require(ranger)
-require(ggrepel)
-# require(tidyverse)
-library(rrda)
 library(bnlearn)
-getwd()
 library(iml)
-library(data.table)
-library(ggplot2)
-library(igraph)
-library(ggraph)
-library(tidygraph)
-library(xtable)
+require(ranger)
 ```
 
 ```{r}
-cd = "Drought"
+cd = "Control"
 
 if (cd == "Drought"){
 	CD<-"W4"
-	Data<-readRDS(here("data/SoyData_Drought.RDS"))
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
 } else if (cd=="Control"){
 	CD<-"W1"
-	Data<-readRDS(here("data/SoyData_Control.RDS"))
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
 }
-
 genome<-Data$genome
 grm.cd<-Data$grm
 met.cd<-Data$met
@@ -64,29 +43,19 @@ met.cd<-scale(met.cd)
 mic.cd <- scale(mic.cd)
 psc19 <- scale(psc19)
 
-colnames(met.cd)<-paste0("X",c(1:ncol(met.cd)))
-
-# 
-# paste0("X",c(1:ncol(met.cd)))
-# metname
-# 
-# colnames(mic.cd)
-# miname
-
-
+#colnames(met.cd)<-paste0("X",c(1:ncol(met.cd)))
 
 
 ```
 
 ```{r}
-imp_total<-readRDS(here("out","imp_RF.RDS"))
 #ic<-cor(imp_total)
 
 imp_sm<-imp_total[, colSums(imp_total) >= 0.01]
 
-imp.g <- imp_total[, 1:3078]
-imp.m <- imp_total[, 3079:7849]
-imp.met <- imp_total[, 7850:8102]
+imp.g <- imp_total[, 1:ncol(genome)]
+imp.m <- imp_total[, (ncol(genome)+1):(ncol(genome)+ncol(mic.cd))]
+imp.met <- imp_total[, (ncol(genome)+ncol(mic.cd)+1):ncol(imp_total)]
 
 
 g<-genome[, colSums(imp.g) >= 0.001]
@@ -100,47 +69,22 @@ dim(im001)
 g01<-genome[, colSums(imp.g) >= 0.01]
 m01<-mic.cd[, colSums(imp.m) >= 0.01]
 met01<-met.cd[, colSums(imp.met) >= 0.01]
+met02<-met.cd[, colSums(imp.met) >= 0.02]
 
 dim(g01)
 dim(m01)
 dim(met01)
+dim(met02)
 
-data<-cbind(g01,m01,met01,psc19)
-im01<-cbind(g01,m01,met01)
+data<-cbind(g01,m01,met02,psc19[,c(1,5,8)])
 dim(data)
 
 
 data <- data.frame(data)
 
-library(reticulate)
-
-# Pythonで使えるように変換
-assign("im001", im001, envir = .GlobalEnv)
-assign("im01", im01, envir = .GlobalEnv)
-assign("psc19", psc19, envir = .GlobalEnv)
 
 ```
 
-```{r}
-# Extract the column names from imp_total
-imp_columns <- colnames(im01)
-
-# Combine the two vectors into a data frame with only columns present in imp_total
-df <- data.frame(Column = paste0("X", c(1:ncol(met.cd))), MetName = metname)
-df_met <- df[df$Column %in% paste0("X", which(colnames(met.cd) %in% imp_columns)), ]
-
-dim(df_met)
-
-
-# Filter column names in mic.cd based on imp_columns
-filtered_columns <- colnames(mic.cd)[colnames(mic.cd) %in% imp_columns]
-
-# Create a data frame combining the filtered column names from mic.cd and the miname vector
-df_micro <- data.frame(Column = filtered_columns, MetName = miname[1:length(filtered_columns)])
-
-dim(df_micro)
-
-```
 
 
 
@@ -161,7 +105,8 @@ graphviz.plot(dag, shape = "ellipse")
 ```
 
 nonlinear
-```{}
+```{r,eval=F}
+set.seed(123)
 str.diff = boot.strength(data, R = 20, algorithm = "hc", 
 												 algorithm.args = list(score="bic-g" 
 												 											#,whitelist=wl, 
@@ -169,9 +114,28 @@ str.diff = boot.strength(data, R = 20, algorithm = "hc",
 												 											))
 head(str.diff)
 
+
+
+if (cd == "Drought"){
+	saveRDS(str.diff,here("out","str.diff_d2.rds"))
+} else if (cd=="Control"){
+	saveRDS(str.diff,here("out","str.diff_c2.rds"))
+} else {
+	stop()
+}
+
 ```
 
-```{, fig.width = 12, fig.height=6}
+```{r, fig.width = 12, fig.height=6}
+
+if (cd == "Drought"){
+	str.diff<- readRDS(here("out","str.diff_d2.rds"))
+} else if (cd=="Control"){
+	str.diff<- readRDS(here("out","str.diff_c2.rds"))
+} else {
+	stop()
+}
+
 attr(str.diff, "threshold")
 plot(str.diff)
 
@@ -184,6 +148,7 @@ strength.plot(avg.diff, str.diff, shape = "ellipse")
 
 avg.diff = averaged.network(str.diff, threshold = 0.6)
 strength.plot(avg.diff, str.diff, shape = "ellipse")
+
 avg.diff = averaged.network(str.diff, threshold = 0.2)
 strength.plot(avg.diff, str.diff, shape = "ellipse")
 
@@ -199,12 +164,10 @@ strength.plot(avg.diff, str.diff, shape = "ellipse")
 
 
 
-
-
 # SHAP net
 
 sim
-```{r}
+```{}
 set.seed(123)
 
 X<-cbind(g01,m01,met01)
@@ -261,93 +224,23 @@ ggplot(shap_df, aes(x=phi, y=feature.value, color=feature)) +
        y="Feature Value") +
   theme_minimal()
 
-# ggplot(shap_df, aes(x=phi, y=reorder(feature, phi, FUN=median), color=feature_value)) +
-#   geom_point(alpha=0.6) +
-#   scale_color_gradient(low="blue", high="red") +
-#   labs(title=paste("SHAP Summary Plot for", colnames(Y)[1]),
-#        x="SHAP Value",
-#        y="Feature") +
-#   theme_minimal()
+
+shap_df <- as.data.frame(shap_results[[colnames(Y)[1]]])  # 例: 最初の形質
+colnames(shap_df) <- c("feature", "phi", "feature_value")
+
+ggplot(shap_df, aes(x=phi, y=reorder(feature, phi, FUN=median), color=feature_value)) +
+  geom_point(alpha=0.6) +
+  scale_color_gradient(low="blue", high="red") +
+  labs(title=paste("SHAP Summary Plot for", colnames(Y)[1]),
+       x="SHAP Value",
+       y="Feature") +
+  theme_minimal()
 
 
 ```
 
-```{python}
-import shap
-import numpy as np
-import pandas as pd
-import xgboost
 
-
-# データ作成
-X = r.im001
-Y = r.psc19[:, 0]  # 1列目を取得
-
-
-print(X.shape)  # Xの行数と列数
-print(Y.shape)  # Yの行数と列数
-
-
-# モデル作成
-model = xgboost.XGBRegressor(n_estimators=100)
-model.fit(X, Y)
-
-# SHAPの計算
-explainer = shap.TreeExplainer(model)
-shap_interaction_values = explainer.shap_interaction_values(X)
-
-# 相互作用行列
-interaction_matrix = pd.DataFrame(shap_interaction_values.mean(axis=0))
-
-# 結果を表示
-interaction_matrix
-import matplotlib.pyplot as plt
-
-# interaction_matrixがデータフレームである場合、すべての値をフラットにしてヒストグラムを描画
-interaction_matrix_values = interaction_matrix.values.flatten()
-
-# ヒストグラムのプロット
-plt.hist(interaction_matrix_values, bins=30, edgecolor='black')
-plt.title('Histogram of SHAP Interaction Values')
-plt.xlabel('SHAP Interaction Value')
-plt.ylabel('Frequency')
-plt.show()
-
-import reticulate
-
-interaction_matrix_r = r.interaction_matrix = interaction_matrix
-```
-
-
-```{r}
-library(reticulate)
-
-# Pythonの変数をRに渡す
-imr <- py$interaction_matrix
-imr <- as.matrix(imr)
-hist(imr)
-max(imr)
-dim(imr)
-
-colnames(imr)<-colnames(im001)
-rownames(imr)<-colnames(im001)
-
-
-imr_l<-log10(imr+1)/2
-
-hist(imr_l)
-
-imr_l[imr_l < 0] <- 0
-
-# 4. 各列ごとにプラスの数をカウント
-positive_counts <- apply(imr_l, 2, function(x) sum(x > 0))
-
-# 5. 結果をベクトルとして表示
-print(positive_counts)
-
-```
-
-```{r}
+```{}
 library(igraph)
 library(ggraph)
 library(dplyr)
@@ -417,10 +310,7 @@ ggraph(g, layout = "fr") +
 ```
 
 
-```{r}
-library(igraph)
-library(ggraph)
-library(dplyr)
+```{}
 
 # 1. 相互作用行列からエッジリストを作成
 # imr_l は 43 x 43 の行列で、相互作用がない場合は 0
@@ -473,11 +363,7 @@ ggraph(g, layout = "fr") +
 ```
 
 
-
-
-
-
-```{r}
+```{}
 # Assuming 'predictor' is the Predictor object you have created with the ranger model
 
 # Assuming 'predictor' is already defined
@@ -511,7 +397,7 @@ print(interaction_plot)
 
 
 sim
-```{r}
+```{}
 
 set.seed(123)
 n <- 20  # サンプル数
@@ -573,7 +459,7 @@ ggplot(shap_df, aes(x=phi, y=feature.value, color=feature)) +
 
 ```
 
-```{r}
+```{}
 
 shap_df <- as.data.frame(shap_results[[colnames(Y)[1]]])  # 例: 最初の形質
 colnames(shap_df) <- c("feature", "phi", "feature_value")

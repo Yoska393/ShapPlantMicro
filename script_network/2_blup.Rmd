@@ -11,18 +11,22 @@ from 32 and 63
 
 ```{r}
 library(MASS)
+library(RAINBOWR)
+library(foreach)
+library(ggplot2)
+require(reshape2)
 ```
 
 
 ```{r}
-cd = "Drought"
+cd = "Control"
 
 if (cd == "Drought"){
 	CD<-"W4"
-	Data<-readRDS(here("data/SoyData_Drought.RDS"))
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
 } else if (cd=="Control"){
 	CD<-"W1"
-	Data<-readRDS(here("data/SoyData_Control.RDS"))
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
 }
 
 genome<-Data$genome
@@ -121,8 +125,8 @@ barplot(coef)
 
 #coef<-coef[-c(5,6,7),]
 barplot(coef[1,])
-#imp.norm <- diag(1 / apply(coef, 1, sum)) %*% coef
-imp.norm<-scale(coef)
+imp.norm <- diag(1 / apply(coef, 1, sum)) %*% coef
+#imp.norm<-scale(coef)
 imp.norm<-coef
 rownames(imp.norm) <- rownames(coef)
 
@@ -194,7 +198,7 @@ g
 
 ```{r}
 imp_total<-cbind(imp.g,imp.m, imp.met )
-saveRDS(imp_total,here("out","imp_BLUP.RDS"))
+saveRDS(imp_total,here("out","imp_BLUP2_c.RDS"))
 ```
 
 
@@ -333,6 +337,6 @@ g
 
 ```{r}
 imp_total<-cbind(imp.g,imp.m)
-saveRDS(imp_total,here("out","imp_BLUP_met.RDS"))
+saveRDS(imp_total,here("out","imp_BLUP_met2.RDS"))
 ```
 
