@@ -1,0 +1,423 @@
+---
+title: "4_microbe_simulation"
+author: "Hayato Yoshioka"
+date: "2025-03-31"
+output: html_document
+---
+
+```{r}
+# 必要なパッケージ
+library(deSolve)    # 微分方程式のソルバー
+library(ggplot2)    # 可視化
+library(reshape2)   # データ整形
+library(pheatmap)
+```
+
+
+```{r}
+# パラメータ設定
+set.seed(42)
+n_species <- 100
+
+# 初期量（正規分布から生成）
+initial_abundance <- abs(rnorm(n_species, mean = 1, sd = 0.1))
+
+
+
+a <- 0.3  # positive の割合
+b <- 0.3  # negative の割合
+
+p<- 1-a-b
+
+con<-c("syn")
+
+if (con=="syn"){
+	upper <- matrix(rnorm(n_species, mean = 0, sd = 0.01), nrow = n_species, ncol = n_species)
+# 上三角のインデックスを取得（対角含まず）
+	upper_indices <- which(upper.tri(upper))
+	# 残す非ゼロの数を計算
+	n_nonzero <- floor((1 - p) * length(upper_indices))
+	# ランダムに非ゼロにするインデックスを選択
+	nonzero_indices <- sample(upper_indices, size = n_nonzero, replace = FALSE)
+	
+	# 非ゼロの位置にランダムな値を代入（-1〜1）
+	upper[nonzero_indices] <- runif(n_nonzero, min = -1, max = 1)
+	
+	# 対称行列を作成
+	interaction_matrix <- upper + t(upper)
+} else if (con == "asyn"){
+	# 90%の場所をランダムに0にする
+interaction_matrix <- matrix(runif(n_species^2, min = -1, max = 1), 
+                             nrow = n_species, ncol = n_species)
+
+zero_indices <- sample(1:(n_species^2), size = floor(p * n_species^2), replace = FALSE)
+interaction_matrix[zero_indices] <- 0
+} else{
+		stop()
+	}
+# 必要なら対角も0に（自己相互作用なし）
+diag(interaction_matrix) <- 0
+
+# 行数（列数）を取得してセルサイズ調整
+n <- nrow(interaction_matrix)
+cell_size <- 300 / n  # 任意で調整
+
+pheatmap(interaction_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(100), 
+         cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         border_color = "gray",
+         fontsize_row = 10,
+         fontsize_col = 10,
+         cellwidth = cell_size,
+         cellheight = cell_size)
+
+```
+
+
+```{r}
+#heatmap(interaction_matrix)
+# 固有増殖率（ランダムに設定）
+growth_rates <- runif(n_species, min = 0.5, max = 1)
+	
+# Lotka-Volterraモデル
+# lotka_volterra <- function(time, state, parameters) {
+#   dx <- state * (growth_rates + interaction_matrix %*% state)
+#   list(dx)
+# }
+
+lotka_volterra <- function(time, state, parameters) {
+  K <- rep(0.2, n_species)  # 各種のキャリングキャパシティを10に固定
+  dx <- state * (growth_rates * (1 - state / K) + interaction_matrix %*% state)
+  list(dx)
+}
+# 時間設定
+times <- seq(0, 10, by = 0.5)
+
+# シミュレーション実行
+out <- ode(y = initial_abundance, times = times, func = lotka_volterra, parms = NULL)
+
+# 結果の整形
+df <- as.data.frame(out)
+df_long <- melt(df, id.vars = "time", variable.name = "Species", value.name = "Abundance")
+
+# 最終タイムポイントの組成を見る
+final_abundance <- tail(df, 1)[-1]  # 時間列を除く
+
+ggplot(df_long, aes(x = time, y = Abundance, group = Species)) +
+  geom_line(color = "black", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Microbial Community Dynamics (No Color)",
+       x = "Time",
+       y = "Abundance")
+# 可視化（最終組成）
+barplot(as.numeric(final_abundance), 
+        names.arg = 1:n_species, 
+        las = 2, 
+        main = "Final Microbial Composition", 
+        xlab = "Microbe ID", 
+        ylab = "Abundance")
+
+```
+
+
+
+# positive, negative , 0
+
+
+
+```{r}
+# パラメータ設定
+set.seed(42)
+n_species <- 100
+
+# 初期量（正規分布から生成）
+initial_abundance <- abs(rnorm(n_species, mean = 1, sd = 0.1))
+
+
+
+a <- 0.1  # positive の割合
+b <- 0.8  # negative の割合
+
+p<- 1-a-b
+
+# 初期化（全0）
+upper <- matrix(0, nrow = n_species, ncol = n_species)
+
+# 上三角（対角除く）のインデックス取得
+upper_indices <- which(upper.tri(upper))
+
+# 全要素数
+n_total <- length(upper_indices)
+
+# positive / negative の個数を計算
+n_positive <- floor(a * n_total)
+n_negative <- floor(b * n_total)
+
+# インデックスをシャッフルして分類
+shuffled_indices <- sample(upper_indices)
+pos_indices <- shuffled_indices[1:n_positive]
+neg_indices <- shuffled_indices[(n_positive + 1):(n_positive + n_negative)]
+
+# 値を代入
+upper[pos_indices] <- runif(n_positive, min = 0.01, max = 1)   # 正の値
+upper[neg_indices] <- runif(n_negative, min = -1, max = -0.01) # 負の値
+
+# 対称行列を作成
+interaction_matrix <- upper + t(upper)
+
+# 必要なら対角も0に（自己相互作用なし）
+diag(interaction_matrix) <- 0
+
+# 行数（列数）を取得してセルサイズ調整
+n <- nrow(interaction_matrix)
+cell_size <- 300 / n  # 任意で調整
+
+pheatmap(interaction_matrix, 
+         color = colorRampPalette(c("blue", "white", "red"))(100), 
+         cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         border_color = "gray",
+         fontsize_row = 10,
+         fontsize_col = 10,
+         cellwidth = cell_size,
+         cellheight = cell_size)
+
+
+#heatmap(interaction_matrix)
+# 固有増殖率（ランダムに設定）
+growth_rates <- runif(n_species, min = 0.5, max = 1)
+
+lotka_volterra <- function(time, state, parameters) {
+  K <- rep(0.2, n_species)  # 各種のキャリングキャパシティを10に固定
+  dx <- state * (growth_rates * (1 - state / K) + interaction_matrix %*% state)
+  list(dx)
+}
+# 時間設定
+times <- seq(0, 30, by = 0.5)
+
+# シミュレーション実行
+out <- ode(y = initial_abundance, times = times, func = lotka_volterra, parms = NULL)
+
+# 結果の整形
+df <- as.data.frame(out)
+df_long <- melt(df, id.vars = "time", variable.name = "Species", value.name = "Abundance")
+
+# 最終タイムポイントの組成を見る
+final_abundance <- tail(df, 1)[-1]  # 時間列を除く
+
+ggplot(df_long, aes(x = time, y = Abundance, group = Species)) +
+  geom_line(color = "black", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Microbial Community Dynamics",
+       x = "Time",
+       y = "Abundance")
+# 可視化（最終組成）
+barplot(as.numeric(final_abundance), 
+        names.arg = 1:n_species, 
+        las = 2, 
+        main = "Final Microbial Composition", 
+        xlab = "Microbe ID", 
+        ylab = "Abundance")
+
+```
+
+```{r}
+# 相互作用行列を作る関数
+generate_interaction_matrix <- function(n_species, a, b) {
+  p <- 1 - a - b
+  upper <- matrix(0, nrow = n_species, ncol = n_species)
+  upper_indices <- which(upper.tri(upper))
+  n_total <- length(upper_indices)
+  n_positive <- floor(a * n_total)
+  n_negative <- floor(b * n_total)
+  
+  shuffled_indices <- sample(upper_indices)
+  pos_indices <- shuffled_indices[1:n_positive]
+  neg_indices <- shuffled_indices[(n_positive + 1):(n_positive + n_negative)]
+  
+  if (n_positive > 0) {
+    upper[pos_indices] <- runif(n_positive, min = 0.01, max = 1)
+  }
+  if (n_negative > 0) {
+    upper[neg_indices] <- runif(n_negative, min = -1, max = -0.01)
+  }
+  
+  interaction_matrix <- upper + t(upper)
+  diag(interaction_matrix) <- 0
+  
+  return(interaction_matrix)
+}
+
+
+# ロトカ＝ヴォルテラ方程式のシミュレーション
+simulate_lv <- function(interaction_matrix,k) {
+  lotka_volterra <- function(time, state, parameters) {
+    K <- rep(k, n_species)
+    dx <- state * (growth_rates * (1 - state / K) + interaction_matrix %*% state)
+    list(dx)
+  }
+  ode(y = initial_abundance, times = times, func = lotka_volterra, parms = NULL)
+}
+
+check_convergence <- function(sim_df, threshold = 1e-3, tail_window = 5) {
+  if (nrow(sim_df) < (tail_window + 1)) {
+    return(FALSE)  # データ不足で収束判定不能 → 非収束とみなす
+  }
+  
+  tail_df <- tail(sim_df, tail_window + 1)
+  abundance_matrix <- as.matrix(tail_df[, -1])  # 時間列を除外
+  diffs <- apply(abundance_matrix, 2, diff)
+
+  if (is.null(dim(diffs)) || any(is.na(diffs))) {
+    return(FALSE)  # 計算不能 → 非収束とみなす
+  }
+
+  fluctuation <- apply(diffs, 2, sd)
+  all(fluctuation < threshold)
+}
+
+check_monotonic_decline <- function(sim_df,th= 0.001) {
+  total_abundance <- rowSums(sim_df[, -1])  # 各時点での総個体数
+  diffs <- diff(total_abundance)
+  return(all(diffs <= th))  # 一度も上昇していなければ TRUE
+}
+
+
+```
+
+
+```{r}
+library(deSolve)
+library(ggplot2)
+library(pheatmap)
+library(reshape2)
+
+set.seed(40)
+n_species <- 50
+initial_abundance <- abs(rnorm(n_species, mean = 1, sd = 0.1))
+growth_rates <- runif(n_species, min = 1, max = 1)
+times <- seq(0, 20, by = 0.5)
+k <-0.2
+
+
+# パラメータ組み合わせループ
+results <- list()
+param_grid <- expand.grid(
+  a = seq(0, 1, by = 0.1),
+  b = seq(0, 1, by = 0.1)
+)
+param_grid <- param_grid[param_grid$a + param_grid$b <= 1, ]  # 制約
+
+convergence_status <- logical(nrow(param_grid))
+
+decline_status <- logical(nrow(param_grid))
+
+
+for (i in 1:nrow(param_grid)) {
+  a <- param_grid$a[i]
+  b <- param_grid$b[i]
+  interaction_matrix <- generate_interaction_matrix(n_species, a, b)
+  n <- nrow(interaction_matrix)
+	cell_size <- 300 / n  # 任意で調整
+
+  min_val <-  - 1
+  max_val <- + 1
+
+
+	pheatmap(interaction_matrix,
+   color = colorRampPalette(c("blue", "white", "red"))(100),
+   cluster_rows = FALSE,
+   cluster_cols = FALSE,
+   border_color = "gray",
+   fontsize_row = 10,
+   fontsize_col = 10,
+   cellwidth = cell_size,
+   cellheight = cell_size,
+   breaks = seq(min_val, max_val, length.out = 101))
+	
+  sim_result <- simulate_lv(interaction_matrix,k)
+  df <- as.data.frame(sim_result)
+
+	converged <- check_convergence(df)
+	convergence_status[i] <- converged
+	cat(sprintf("a = %.1f, b = %.1f, Converged: %s\n", a, b, converged))
+ 
+	if (converged) {
+    decline_status[i] <- check_monotonic_decline(df)
+  } else {
+    decline_status[i] <- FALSE
+  }
+	 
+  df_long <- melt(df, id.vars = "time", variable.name = "Species", value.name = "Abundance")
+  df_long$a <- a
+  df_long$b <- b
+  results[[i]] <- df_long
+  df_plot <- df_long
+  
+  a_val <- unique(df_plot$a)
+  b_val <- unique(df_plot$b)
+  
+  p <- ggplot(df_plot, aes(x = time, y = Abundance, group = Species)) +
+    geom_line(alpha = 0.4, color = "black") +
+    theme_minimal() +
+    labs(title = paste0("Microbial Dynamics (a = ", a_val, ", b = ", b_val, ")"),
+         x = "Time",
+         y = "Abundance")
+  
+  print(p)
+  
+  final_abundance <- tail(df, 1)[-1] 
+  # 
+  # p2<-barplot(as.numeric(final_abundance), 
+  #       names.arg = 1:n_species, 
+  #       las = 2, 
+  #       main = "Final Microbial Composition", 
+  #       xlab = "Microbe ID", 
+  #       ylab = "Abundance")
+  # 
+  # print(p2)
+  
+}
+
+
+param_grid$converged <- convergence_status
+param_grid$decline <- decline_status
+
+
+subset(param_grid, converged == TRUE)
+
+# ggplot(param_grid, aes(x = a, y = b, fill = converged)) +
+#   geom_tile(color = "white") +
+#   #scale_fill_manual(values = c("TRUE" = "", "FALSE" = "red")) +
+#   labs(title = "Convergence Map", x = "a", y = "b") +
+#   theme_minimal()
+
+
+ggplot(param_grid, aes(x = a, y = b)) +
+  geom_tile(aes(fill = interaction(converged, decline)), color = "white") +
+  scale_fill_manual(
+    name = "Status",
+    values = c(
+      "TRUE.FALSE" = "#56B1F7",   # Converged
+      "TRUE.TRUE"  =  "#1C6BA0",    # Declined
+      "FALSE.FALSE" = "#F8766D"   # Not converged
+    ),
+    labels = c(
+      "TRUE.FALSE" = "Converged",
+      "TRUE.TRUE" =  "Converged (Mono-decline)",
+      "FALSE.FALSE" = "Diverged"
+    )
+  ) +
+  labs(title = "Convergence Map", x = "positive interactions", y = "negative interactions") +
+  theme_minimal()
+
+
+
+```
+
+
+```{r}
+
+```
+

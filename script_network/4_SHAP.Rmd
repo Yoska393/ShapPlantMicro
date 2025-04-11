@@ -1,0 +1,340 @@
+
+```{r}
+require(here)
+require(ranger)
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+	
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+mir.cd<-Data$mir
+psc19<-Data$pheno
+miname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(genome)
+dim(mic.cd)
+dim(met.cd)
+
+dim(imp_total)
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+write.csv(mm,here("out","met_list.csv"))
+write.csv(cm,here("out","micro_list.csv"))
+
+```
+
+
+```{r}
+
+#ic<-cor(imp_total)
+
+imp_sm<-imp_total[, colSums(imp_total) >= 0.01]
+
+# imp.g <- imp_total[, 1:3078]
+# imp.m <- imp_total[, 3079:7849]
+# imp.met <- imp_total[, 7850:8102]
+
+
+imp.g <- imp_total[, 1:ncol(genome)]
+imp.m <- imp_total[, (ncol(genome)+1):(ncol(genome)+ncol(mic.cd))]
+imp.met <- imp_total[, (ncol(genome)+ncol(mic.cd)+1):ncol(imp_total)]
+
+dim(imp.g)
+dim(imp.m)
+dim(imp.met)
+
+# imp.g <- imp.norm[, 1:ncol(genome)]
+# imp.m <- imp.norm[, (ncol(genome)+1):(ncol(genome)+ncol(mic.cd))]
+# imp.met <- imp.norm[, (ncol(genome)+ncol(mic.cd)+1):ncol(imp.norm)]
+
+
+g<-genome[, colSums(imp.g) >= 0.001]
+m<-mic.cd[, colSums(imp.m) >= 0.001]
+met<-met.cd[, colSums(imp.met) >= 0.001]
+
+im001<-cbind(g,m,met)
+dim(im001)
+
+
+g01<-genome[, colSums(imp.g) >= 0.01]
+m01<-mic.cd[, colSums(imp.m) >= 0.01]
+met01<-met.cd[, colSums(imp.met) >= 0.02]
+
+dim(g01)
+dim(m01)
+dim(met01)
+
+data<-cbind(g01,m01,met01,psc19)
+im01<-cbind(g01,m01,met01)
+dim(data)
+
+
+data <- data.frame(data)
+
+library(reticulate)
+
+# Pythonで使えるように変換
+assign("im001", im001, envir = .GlobalEnv)
+assign("im01", im01, envir = .GlobalEnv)
+assign("psc19", psc19, envir = .GlobalEnv)
+
+```
+
+
+```{python,eval=F}
+import shap
+import numpy as np
+import pandas as pd
+import xgboost
+import matplotlib.pyplot as plt
+```
+
+
+```{python,eval=F}
+# データ作成
+X = r.im001
+Y = r.psc19[:, 0]  # 1列目を取得
+
+
+print(X.shape)  # Xの行数と列数
+print(Y.shape)  # Yの行数と列数
+```
+
+
+```{python,eval=F}
+# モデル作成
+model = xgboost.XGBRegressor(n_estimators=100)
+model.fit(X, Y)
+
+# SHAPの計算
+explainer = shap.TreeExplainer(model)
+shap_interaction_values = explainer.shap_interaction_values(X)
+
+# 相互作用行列
+interaction_matrix = pd.DataFrame(shap_interaction_values.mean(axis=0))
+
+# 結果を表示
+interaction_matrix
+```
+
+
+```{python,eval=F}
+
+# interaction_matrixがデータフレームである場合、すべての値をフラットにしてヒストグラムを描画
+interaction_matrix_values = interaction_matrix.values.flatten()
+
+# ヒストグラムのプロット
+plt.hist(interaction_matrix_values, bins=30, edgecolor='black')
+plt.title('Histogram of SHAP Interaction Values')
+plt.xlabel('SHAP Interaction Value')
+plt.ylabel('Frequency')
+plt.show()
+
+import reticulate
+
+interaction_matrix_r = r.interaction_matrix = interaction_matrix
+```
+
+
+```{r,eval=F}
+library(reticulate)
+
+# Pythonの変数をRに渡す
+imr <- py$interaction_matrix
+imr <- as.matrix(imr)
+hist(imr)
+max(imr)
+dim(imr)
+
+colnames(imr)<-colnames(im001)
+rownames(imr)<-colnames(im001)
+
+
+if (cd == "Drought"){
+	saveRDS(imr,here("out","imr_d2"))
+} else if (cd=="Control"){
+	saveRDS(imr,here("out","imr_c2"))
+} else {
+	stop()
+}
+```
+
+
+```{r}
+
+if (cd == "Drought"){
+	imr<- readRDS(here("out","imr_d2"))
+} else if (cd=="Control"){
+	imr<- readRDS(here("out","imr_c2"))
+} else {
+	stop()
+}
+
+
+imr_l<-log10(imr+1)/2
+
+hist(imr_l)
+
+imr_l[imr_l < 0] <- 0
+
+# 4. 各列ごとにプラスの数をカウント
+positive_counts <- apply(imr_l, 2, function(x) sum(x > 0))
+
+# 5. 結果をベクトルとして表示
+print(positive_counts)
+
+```
+
+```{r}
+library(igraph)
+library(ggraph)
+library(dplyr)
+
+# 1. 相互作用行列からエッジリストを作成
+threshold <- 5e-05 # 相互作用がしきい値を超える場合にエッジとして扱う
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# 特徴名に基づいてノードのタイプを分類
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "#4B8BBE",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# 3. igraph グラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 4. 繋がり（次数）が3未満のノードを除外
+node_degree <- degree(g)
+g <- delete_vertices(g, V(g)[node_degree < 3])
+
+# 5. 残ったノードの次数を取得し、ノード属性として設定
+V(g)$degree <- degree(g)
+
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+    V(g)$degree > 20 ~ 12
+)
+# ノードサイズをファクターに変換
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# グラフを描画
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +  # ここで color と size を指定
+  geom_node_text(aes(label = name), repel = TRUE) +
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+	guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"),  override.aes = list(color = "gray")))+  # sizeにテキストを表示
+  theme_void() +
+  theme(legend.position = "right")
+```
+
+
+```{r}
+library(igraph)
+library(ggraph)
+library(dplyr)
+
+# 1. 相互作用行列からエッジリストを作成
+# imr_l は 43 x 43 の行列で、相互作用がない場合は 0
+threshold <- 3e-05 # 相互作用がしきい値を超える場合にエッジとして扱う
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+
+# 'from' と 'to' を行列のインデックスから名前に変換
+# imr_l の行名と列名を特徴名として仮定
+
+
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# 特徴名に基づいてノードのタイプを分類
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",  # "Ch" で始まる特徴 -> Genome
+      grepl("^B", name) ~ "Microbiome",  # "B" で始まる特徴 -> Microbiome
+      grepl("^X", name) ~ "Metabolome",  # "X" で始まる特徴 -> Metabolome
+      grepl("^Dry", name) ~ "Phenotype",  # "Dry" で始まる特徴 -> Phenotype
+      TRUE ~ "Other"  # その他は "Other"
+    )
+  )
+
+node_colors <- c("Genome" = "#FF6F61",  # soft red-orange
+                 "Microbiome" = "#66B032",  # soft green
+                 "Metabolome" = "#4B8BBE",  # soft blue
+                 "Phenotype" = "#9B4F96",  # soft purple
+                 "Other" = "#B0B0B0")  # light grey
+
+# 3. igraph グラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 4. プロット
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +  # エッジの色を固定 (gray) & 太さ (abs(weight)で色と太さを調整)
+  geom_node_point(aes(color = type), size = 5) +  # ノードの色をタイプに基づいて変更
+  geom_node_text(aes(label = name), repel = TRUE) +  # ラベルを feature 名に修正
+  scale_edge_width(range = c(0.5, 2)) +  # エッジの太さを調整
+  scale_color_manual(values = node_colors) +  # ノードの色を設定 (タイプに基づいて色分け)
+  theme_void() +
+  theme(legend.position = "right")  # 凡例の位置を右に設定
+
+```

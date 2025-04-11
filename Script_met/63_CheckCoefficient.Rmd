@@ -349,9 +349,7 @@ metPrm19f20RF.cd <- tcrossprod(predmet19f20RF) / ncol(predmet19f20RF)
 met.cd<- rbind(met19.cd,met20.cd)
 rownames(met.cd)<-rownames(psc)
 metrm.cd <- tcrossprod(met.cd) / ncol(met.cd)
-```
 
-```{R}
 comn<-  paste0(rep("OTU_",ncol(com19.cd)),1:ncol(com19.cd))
 comnameL <-colnames(com19.cd)
 colnames(com19.cd)<- comn
