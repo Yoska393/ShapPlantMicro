@@ -774,5 +774,56 @@ ggraph(g, layout = "fr") +
   theme_void() +
   theme(legend.position = "right")
 
+# 8. node size
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 9. graph
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = label), repel = TRUE) +  # ← label 使用
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
+	  ggtitle(paste("Condition:", cd)) +
+  theme_void() +
+  theme(legend.position = "right")
+
+
+
+
+# 10. compare
+edge_pairs <- edges_df %>%
+  filter(from %in% target_nodes | to %in% target_nodes) %>%
+  mutate(
+    target_node = ifelse(from %in% target_nodes, from, to),
+    partner_node = ifelse(from %in% target_nodes, to, from)
+  ) %>%
+  select(target_node, partner_node, weight) %>%
+  arrange(target_node, partner_node)
+
+# 11. CSV 
+
+# label
+edge_pairs <- edge_pairs %>%
+  left_join(nodes[, c("name", "label")], by = c("target_node" = "name")) %>%
+  rename(target_label = label) %>%
+  left_join(nodes[, c("name", "label")], by = c("partner_node" = "name")) %>%
+  rename(partner_label = label)
+
+# csv
+edge_pairs <- edge_pairs %>%
+  arrange(target_label, partner_label)
+
+#write.csv(edge_pairs, file = paste0("target_node_links4_", cd, ".csv"), row.names = FALSE)
 
 ```
