@@ -33,7 +33,6 @@ micro_labels_genus <- sapply(cm, extract_genus)
 ```{r}
 cd = "Control"
 
-# --- Control or Drought データの読み込み ---
 if (cd == "Drought") {
     CD <- "W4"
     Data <- readRDS(here("data/SoyData_Drought2.RDS"))
@@ -41,13 +40,13 @@ if (cd == "Drought") {
 } else if (cd == "Control") {
     CD <- "W1"
     Data <- readRDS(here("data/SoyData_Control2.RDS"))
-    imp_total <- readRDS(here("out", "imp_RF2_d.RDS"))  # droughtの重要度のみ使う
+    imp_total <- readRDS(here("out", "imp_RF2_d.RDS"))  
 } else {
     stop("Invalid condition")
 }
 
-# --- データセット共通 ---
-genome <- scale(Data$genome)  # 共通
+
+genome <- scale(Data$genome)  
 mic.cd <- scale(Data$mic)
 met.cd <- scale(Data$met)
 psc19 <- scale(Data$pheno)
@@ -133,174 +132,7 @@ shap_df <- shap_df[, !is.na(colnames(shap_df))]
 ```
 
 
-
-```{r}
-
-shap_df<- readRDS(here("out",paste0("shap_df",cd,".rds")))
-
-shap_summary_signed <- shap_df %>%
-  group_by(feature) %>%
-  summarise(mean_phi = mean(phi), .groups = "drop") %>%
-  arrange(desc(mean_phi))
-
-# 上位10 + 下位10の特徴量を選択（meanで）
-shap_top_bottom <- bind_rows(
-  shap_summary_signed %>% top_n(10, mean_phi),
-  shap_summary_signed %>% top_n(-10, mean_phi)
-)
-
-# 使う特徴量名を抽出
-top_bottom_features <- shap_top_bottom$feature
-
-# 抽出した特徴量に基づいて shap_df をフィルタリング
-shap_df_subset <- shap_df %>% filter(feature %in% top_bottom_features)
-
-# --- ① SHAP散布図（summary plot） ---
-
-ggplot(shap_df_subset, aes(x = phi, y = reorder(feature, phi, FUN = median), color = feature_value)) +
-  geom_point(alpha = 0.6) +
-  scale_color_gradient(low = "blue", high = "red") +
-  labs(
-    title = paste("Top & Bottom 10 Features for", colnames(Y)[1]),
-    x = "SHAP Value",
-    y = "Feature"
-  ) +
-  theme_minimal()
-
-# --- ② SHAP平均値の棒グラフ（signed） ---
-
-ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi)) +
-  geom_col(aes(fill = mean_phi > 0)) +
-  scale_fill_manual(values = c("TRUE" = "tomato", "FALSE" = "skyblue")) +
-  coord_flip() +
-  labs(
-    title = paste("Top & Bottom 10 Signed Mean SHAP Values for", colnames(Y)[1]),
-    x = "Feature",
-    y = "Mean SHAP Value"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "none")
-```
-
-
-```{r}
-
-
-shap_summary_signed <- shap_summary_signed %>%
-  mutate(
-    group = case_when(
-      grepl("^C", feature) ~ "Genome",
-      grepl("^B", feature) ~ "Microbiome",
-      grepl("^X", feature) ~ "Metabolome",
-      TRUE ~ "Other"
-    )
-  )
-# 色指定（node_colors に準拠）
-node_colors <- c(
-  "Genome"     = "#FF6F61",   # 赤オレンジ
-  "Microbiome" = "#66B032",   # 緑
-  "Metabolome" = "orange",    # オレンジ
-  "Phenotype"  = "#9B4F96",   # 紫（未使用）
-  "Other"      = "#B0B0B0"    # グレー
-)
-
-# 棒グラフで色分けして表示
-ggplot(shap_summary_signed, aes(x = reorder(feature, mean_phi), y = mean_phi, fill = group)) +
-  geom_col() +
-  scale_fill_manual(values = node_colors) +
-  coord_flip() +
-  labs(
-    title = paste("SHAP Values in", cd),
-    x = "Feature",
-    y = "Mean SHAP Value",
-    fill = "Feature Group"
-  ) +
-  theme_minimal() +
-  theme(axis.text.y = element_blank())
-
-
-# 特徴量ごとの SHAP 値（正負込み）の平均を計算
-shap_summary_signed <- shap_df %>%
-  group_by(feature) %>%
-  summarise(mean_phi = mean(phi), .groups = "drop")
-
-
-# Top 10 と Bottom 10 を選抜
-shap_top_bottom <- bind_rows(
-  shap_summary_signed %>% top_n(10, mean_phi),
-  shap_summary_signed %>% top_n(-10, mean_phi)
-)
-
-
-# グループ分類（先頭の文字に基づいて分類）
-shap_top_bottom <- shap_top_bottom %>%
-  mutate(
-    group = case_when(
-      grepl("^C", feature) ~ "Genome",
-      grepl("^B", feature) ~ "Microbiome",
-      grepl("^X", feature) ~ "Metabolome",
-      TRUE ~ "Other"
-    )
-  )
-
-# 可視化：Top & Bottom 10 SHAP 平均（グループ色付き）
-ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi, fill = group)) +
-  geom_col() +
-  scale_fill_manual(values = node_colors) +
-  coord_flip() +
-  labs(
-    title = paste("SHAP Values in", cd,"(Top & Bottom 10)"),
-    x = "Feature",
-    y = "Mean SHAP Value",
-    fill = "Feature Group"
-  ) +
-  theme_minimal()
-
-```
-
-
-
-```{r,fig.width = 10}
-get_label <- function(name) {
-  label <- case_when(
-    str_starts(name, "X") ~ mm[as.numeric(str_remove(name, "X"))],
-    str_starts(name, "B") ~ micro_labels_genus[as.numeric(str_remove(name, "B"))],
-    TRUE ~ name
-  )
-  # ラベルがNAでなければ40文字に制限（NAはそのまま）
-  if (!is.na(label)) {
-    label <- substr(label, 1, 60)
-  }
-  return(label)
-}
-
-# ラベルの付与
-shap_top_bottom <- shap_top_bottom %>%
-  mutate(label = sapply(feature, get_label)) %>%
-  filter(!is.na(label))  # NAを除外
-
-
-# 可視化
-ggplot(shap_top_bottom, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
-  geom_col() +
-  scale_fill_manual(values = node_colors) +
-  coord_flip() +
-  labs(
-    title = paste("SHAP Values in", cd, "(Top & Bottom 10)"),
-    x = "Feature",
-    y = "Mean SHAP Value",
-    fill = "Feature Group"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),  # タイトルだけ大きく
-    axis.text.y = element_text(size = 10)
-  )
-
-```
-
-
-##### compare
+# abs
 
 ```{r,fig.width=10}
 

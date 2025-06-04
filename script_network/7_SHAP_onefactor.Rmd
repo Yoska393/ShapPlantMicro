@@ -25,7 +25,7 @@ extract_genus <- function(tax_str) {
   ifelse(length(genus_match) > 0, gsub("g__", "", genus_match), NA)
 }
 
-# 適用例
+
 micro_labels_genus <- sapply(cm, extract_genus)
 
 ```
@@ -175,19 +175,19 @@ shap_summary_signed <- shap_df %>%
   summarise(mean_phi = mean(phi), .groups = "drop") %>%
   arrange(desc(mean_phi))
 
-# 上位10 + 下位10の特徴量を選択（meanで）
+# top bottom
 shap_top_bottom <- bind_rows(
   shap_summary_signed %>% top_n(10, mean_phi),
   shap_summary_signed %>% top_n(-10, mean_phi)
 )
 
-# 使う特徴量名を抽出
+# names
 top_bottom_features <- shap_top_bottom$feature
 
-# 抽出した特徴量に基づいて shap_df をフィルタリング
+# filter
 shap_df_subset <- shap_df %>% filter(feature %in% top_bottom_features)
 
-# --- ① SHAP散布図（summary plot） ---
+# --- ① shap summary plot） ---
 
 ggplot(shap_df_subset, aes(x = phi, y = reorder(feature, phi, FUN = median), color = feature_value)) +
   geom_point(alpha = 0.6) +
@@ -199,7 +199,7 @@ ggplot(shap_df_subset, aes(x = phi, y = reorder(feature, phi, FUN = median), col
   ) +
   theme_minimal()
 
-# --- ② SHAP平均値の棒グラフ（signed） ---
+# --- ② SHAP mean（signed） ---
 
 ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi)) +
   geom_col(aes(fill = mean_phi > 0)) +
@@ -217,7 +217,6 @@ ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi)) +
 
 ```{r}
 
-
 shap_summary_signed <- shap_summary_signed %>%
   mutate(
     group = case_when(
@@ -227,16 +226,16 @@ shap_summary_signed <- shap_summary_signed %>%
       TRUE ~ "Other"
     )
   )
-# 色指定（node_colors に準拠）
+#color
 node_colors <- c(
-  "Genome"     = "#FF6F61",   # 赤オレンジ
-  "Microbiome" = "#66B032",   # 緑
-  "Metabolome" = "orange",    # オレンジ
-  "Phenotype"  = "#9B4F96",   # 紫（未使用）
-  "Other"      = "#B0B0B0"    # グレー
+  "Genome"     = "#FF6F61",   
+  "Microbiome" = "#66B032",   
+  "Metabolome" = "orange",    
+  "Phenotype"  = "#9B4F96",   
+  "Other"      = "#B0B0B0"    
 )
 
-# 棒グラフで色分けして表示
+
 ggplot(shap_summary_signed, aes(x = reorder(feature, mean_phi), y = mean_phi, fill = group)) +
   geom_col() +
   scale_fill_manual(values = node_colors) +
@@ -251,20 +250,20 @@ ggplot(shap_summary_signed, aes(x = reorder(feature, mean_phi), y = mean_phi, fi
   theme(axis.text.y = element_blank())
 
 
-# 特徴量ごとの SHAP 値（正負込み）の平均を計算
+# SHAP mean
 shap_summary_signed <- shap_df %>%
   group_by(feature) %>%
   summarise(mean_phi = mean(phi), .groups = "drop")
 
 
-# Top 10 と Bottom 10 を選抜
+# Top bottom
 shap_top_bottom <- bind_rows(
   shap_summary_signed %>% top_n(10, mean_phi),
   shap_summary_signed %>% top_n(-10, mean_phi)
 )
 
 
-# グループ分類（先頭の文字に基づいて分類）
+# Grouping
 shap_top_bottom <- shap_top_bottom %>%
   mutate(
     group = case_when(
@@ -275,7 +274,7 @@ shap_top_bottom <- shap_top_bottom %>%
     )
   )
 
-# 可視化：Top & Bottom 10 SHAP 平均（グループ色付き）
+# plot
 ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi, fill = group)) +
   geom_col() +
   scale_fill_manual(values = node_colors) +
@@ -291,28 +290,28 @@ ggplot(shap_top_bottom, aes(x = reorder(feature, mean_phi), y = mean_phi, fill =
 ```
 
 
-
-```{r,fig.width = 10}
+with the actual name
+```{,fig.width = 10}
 get_label <- function(name) {
   label <- case_when(
     str_starts(name, "X") ~ mm[as.numeric(str_remove(name, "X"))],
     str_starts(name, "B") ~ micro_labels_genus[as.numeric(str_remove(name, "B"))],
     TRUE ~ name
   )
-  # ラベルがNAでなければ40文字に制限（NAはそのまま）
+  # NA 
   if (!is.na(label)) {
     label <- substr(label, 1, 60)
   }
   return(label)
 }
 
-# ラベルの付与
+
 shap_top_bottom <- shap_top_bottom %>%
   mutate(label = sapply(feature, get_label)) %>%
-  filter(!is.na(label))  # NAを除外
+  filter(!is.na(label))  # NA removed
 
 
-# 可視化
+# plot
 ggplot(shap_top_bottom, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
   geom_col() +
   scale_fill_manual(values = node_colors) +
@@ -325,14 +324,14 @@ ggplot(shap_top_bottom, aes(x = reorder(label, mean_phi), y = mean_phi, fill = g
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    plot.title = element_text(size = 16, face = "bold"),  # タイトルだけ大きく
+    plot.title = element_text(size = 16, face = "bold"),  
     axis.text.y = element_text(size = 10)
   )
 
 ```
 
 
-##### compare
+# abs
 
 ```{r,fig.width=10}
 
@@ -356,16 +355,8 @@ shap_summary_signed <- shap_summary_signed %>%
       TRUE ~ "Other"
     )
   )
-# 色指定（node_colors に準拠）
-node_colors <- c(
-  "Genome"     = "#FF6F61",   # 赤オレンジ
-  "Microbiome" = "#66B032",   # 緑
-  "Metabolome" = "orange",    # オレンジ
-  "Phenotype"  = "#9B4F96",   # 紫（未使用）
-  "Other"      = "#B0B0B0"    # グレー
-)
 
-# 特徴量ごとの SHAP 値（正負込み）の平均を計算
+
 shap_summary_signed <- shap_df %>%
   group_by(feature) %>%
   summarise(mean_phi = mean(abs(phi)), .groups = "drop")
@@ -375,8 +366,6 @@ shap_top_bottom <- bind_rows(
   shap_summary_signed %>% top_n(20, mean_phi),
 )
 
-
-# グループ分類（先頭の文字に基づいて分類）
 shap_top_bottom <- shap_top_bottom %>%
   mutate(
     group = case_when(
@@ -387,6 +376,14 @@ shap_top_bottom <- shap_top_bottom %>%
     )
   )
 
+node_colors <- c(
+  "Genome"     = "#FF6F61",   
+  "Microbiome" = "#66B032",   
+  "Metabolome" = "orange",    
+  "Phenotype"  = "#9B4F96",   
+  "Other"      = "#B0B0B0"    
+)
+
 
 get_label <- function(name) {
   label <- case_when(
@@ -394,7 +391,6 @@ get_label <- function(name) {
     str_starts(name, "B") ~ micro_labels_genus[as.numeric(str_remove(name, "B"))],
     TRUE ~ name
   )
-  # ラベルがNAでなければ40文字に制限（NAはそのまま）
   if (!is.na(label)) {
     label <- substr(label, 1, 60)
   }
@@ -402,14 +398,11 @@ get_label <- function(name) {
 }
 
 
-
-# ラベルの付与
 shap_top_bottom <- shap_top_bottom %>%
   mutate(label = sapply(feature, get_label)) %>%
-  filter(!is.na(label))  # NAを除外
+  filter(!is.na(label)) 
 
-
-# 可視化
+# plot
 ggplot(shap_top_bottom, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
   geom_col() +
   scale_fill_manual(values = node_colors) +
@@ -422,9 +415,8 @@ ggplot(shap_top_bottom, aes(x = reorder(label, mean_phi), y = mean_phi, fill = g
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    plot.title = element_text(size = 16, face = "bold"),  # タイトルだけ大きく
+    plot.title = element_text(size = 16, face = "bold"), 
     axis.text.y = element_text(size = 10)
   )
 
 ```
-
