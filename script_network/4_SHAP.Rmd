@@ -1,7 +1,14 @@
 
+SHAP interaction
+
 ```{r}
 require(here)
 require(ranger)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(reticulate)
+library(tidyverse)
 ```
 
 ```{r}
@@ -23,9 +30,9 @@ genome<-Data$genome
 grm.cd<-Data$grm
 met.cd<-Data$met
 mic.cd<-Data$mic
-mir.cd<-Data$mir
+#mir.cd<-Data$mir
 psc19<-Data$pheno
-miname<-Data$microname
+microname<-Data$microname
 metname<-Data$metname
 cd<-Data$cd
 
@@ -46,8 +53,8 @@ rownames(mm)<-  paste0("X", 1:length(metname))
 cm<-matrix(microname,length(microname),1)
 rownames(cm)<-  paste0("B", 1:length(microname))
 
-write.csv(mm,here("out","met_list.csv"))
-write.csv(cm,here("out","micro_list.csv"))
+#write.csv(mm,here("out","met_list.csv"))
+#write.csv(cm,here("out","micro_list.csv"))
 
 ```
 
@@ -99,7 +106,7 @@ dim(data)
 
 data <- data.frame(data)
 
-library(reticulate)
+
 
 # Pythonで使えるように変換
 assign("im001", im001, envir = .GlobalEnv)
@@ -115,6 +122,7 @@ import numpy as np
 import pandas as pd
 import xgboost
 import matplotlib.pyplot as plt
+import random
 ```
 
 
@@ -124,14 +132,19 @@ X = r.im001
 Y = r.psc19[:, 0]  # 1列目を取得
 
 
-print(X.shape)  # Xの行数と列数
+print(X.shape)  # Xの行数と列数 drought 1965
 print(Y.shape)  # Yの行数と列数
 ```
 
 
 ```{python,eval=F}
 # モデル作成
-model = xgboost.XGBRegressor(n_estimators=100)
+seed =123
+np.random.seed(seed)
+random.seed(seed)
+
+#model = xgboost.XGBRegressor(n_estimators=100)
+model = xgboost.XGBRegressor(n_estimators=100, random_state=seed)
 model.fit(X, Y)
 
 # SHAPの計算
@@ -165,7 +178,7 @@ interaction_matrix_r = r.interaction_matrix = interaction_matrix
 
 
 ```{r,eval=F}
-library(reticulate)
+
 
 # Pythonの変数をRに渡す
 imr <- py$interaction_matrix
@@ -179,9 +192,9 @@ rownames(imr)<-colnames(im001)
 
 
 if (cd == "Drought"){
-	saveRDS(imr,here("out","imr_d2"))
+	saveRDS(imr,here("out","imr_d3"))
 } else if (cd=="Control"){
-	saveRDS(imr,here("out","imr_c2"))
+	saveRDS(imr,here("out","imr_c3"))
 } else {
 	stop()
 }
@@ -189,9 +202,34 @@ if (cd == "Drought"){
 
 
 ```{r}
+if (cd == "Drought"){
+	imr<- readRDS(here("out","imr_d3"))
+} else if (cd=="Control"){
+	imr<- readRDS(here("out","imr_c2"))
+} else {
+	stop()
+}
+
+
+
+# 必要なライブラリ
+
+# 定数列（分散ゼロ）を除去
+imr_filtered <- imr[, apply(imr, 2, function(x) sd(x) != 0)]
+
+# 対応する行も除去（正方行列の前提）
+imr_filtered <- imr_filtered[apply(imr_filtered, 1, function(x) sd(x) != 0), ]
+
+heatmap(imr_filtered)
+```
+
+
+```{r}
+set.seed(123)
+cd = "Control"
 
 if (cd == "Drought"){
-	imr<- readRDS(here("out","imr_d2"))
+	imr<- readRDS(here("out","imr_d3"))
 } else if (cd=="Control"){
 	imr<- readRDS(here("out","imr_c2"))
 } else {
@@ -211,12 +249,6 @@ positive_counts <- apply(imr_l, 2, function(x) sum(x > 0))
 # 5. 結果をベクトルとして表示
 print(positive_counts)
 
-```
-
-```{r}
-library(igraph)
-library(ggraph)
-library(dplyr)
 
 # 1. 相互作用行列からエッジリストを作成
 threshold <- 5e-05 # 相互作用がしきい値を超える場合にエッジとして扱う
@@ -245,7 +277,7 @@ nodes <- nodes %>%
 
 node_colors <- c("Genome" = "#FF6F61",
                  "Microbiome" = "#66B032",
-                 "Metabolome" = "#4B8BBE",
+                 "Metabolome" = "orange",
                  "Phenotype" = "#9B4F96",
                  "Other" = "#B0B0B0")
 
@@ -268,6 +300,8 @@ V(g)$size <- case_when(
 # ノードサイズをファクターに変換
 V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
 
+
+
 # グラフを描画
 ggraph(g, layout = "fr") +  
   geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
@@ -280,61 +314,559 @@ ggraph(g, layout = "fr") +
                              labels = c("-3", "-10", "-20", "20+"),  override.aes = list(color = "gray")))+  # sizeにテキストを表示
   theme_void() +
   theme(legend.position = "right")
+
+print(degree(g))
+# ####
+# # ノードサイズを degree の値そのままに
+# V(g)$size_value <- degree(g)
+# 
+# # グラフ描画
+# ggraph(g, layout = "fr") +  
+#   geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+#   geom_node_point(aes(color = type, size = size_value)) +
+#   geom_node_text(aes(label = name), repel = TRUE) +
+#   scale_edge_width(range = c(0.5, 2)) +
+#   scale_color_manual(values = node_colors) +
+#   scale_size_continuous(
+#     name = "Degree",  # 凡例タイトルを "Degree" に変更
+#     range = c(2, 20)  # 表示サイズの見た目の調整（必要に応じて）
+#   ) +
+#   theme_void() +
+#   theme(legend.position = "right")
+
+write.csv(nodes, file = paste0("nodes_all_", cd, ".csv"), row.names = FALSE)
+
+
 ```
+ [1] 10 18 28  4 14  8  2  2  8  4  4 10  4  4  4  6  6 14  4  4  6
+[22]  4  8  2  0  4  2  4  4  6  6  2  6  6  4  6  4  6  6  4  4  4
+[43]  6  4  4  6  4  2  6  4  4  6  6  4
 
 
 ```{r}
-library(igraph)
-library(ggraph)
-library(dplyr)
 
-# 1. 相互作用行列からエッジリストを作成
-# imr_l は 43 x 43 の行列で、相互作用がない場合は 0
-threshold <- 3e-05 # 相互作用がしきい値を超える場合にエッジとして扱う
+if (cd == "Drought"){
+	target_nodes <- c("X235", "X53")
+	#target_nodes <- c("X235", "X53","X45","X75")
+} else if (cd=="Control"){
+	target_nodes <- c("X35", "X98", "X190", "Chr4_22035062")
+} else {
+	stop()
+}
+
+
+
+# 1. 相互作用行列からエッジリストを作成（しきい値超え）
+threshold <- 5e-05
 edges <- which(imr_l > threshold, arr.ind = TRUE)
-
-# 'from' と 'to' を行列のインデックスから名前に変換
-# imr_l の行名と列名を特徴名として仮定
-
-
 edges_df <- data.frame(
   from = rownames(imr_l)[edges[, 1]],
   to = colnames(imr_l)[edges[, 2]],
   weight = imr_l[edges]
 )
 
-# 2. ノード情報の作成
+# 2. ターゲットノードを含む行だけにフィルタ
+edges_df <- edges_df %>% 
+  filter(from %in% target_nodes | to %in% target_nodes)
+
+# 3. ノード情報の作成
 nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
 
-# 特徴名に基づいてノードのタイプを分類
+# ノードタイプを設定
 nodes <- nodes %>%
   mutate(
     type = case_when(
-      grepl("^Ch", name) ~ "Genome",  # "Ch" で始まる特徴 -> Genome
-      grepl("^B", name) ~ "Microbiome",  # "B" で始まる特徴 -> Microbiome
-      grepl("^X", name) ~ "Metabolome",  # "X" で始まる特徴 -> Metabolome
-      grepl("^Dry", name) ~ "Phenotype",  # "Dry" で始まる特徴 -> Phenotype
-      TRUE ~ "Other"  # その他は "Other"
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
     )
   )
 
-node_colors <- c("Genome" = "#FF6F61",  # soft red-orange
-                 "Microbiome" = "#66B032",  # soft green
-                 "Metabolome" = "#4B8BBE",  # soft blue
-                 "Phenotype" = "#9B4F96",  # soft purple
-                 "Other" = "#B0B0B0")  # light grey
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
 
-# 3. igraph グラフを作成
+# 4. サブグラフを作成
 g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
 
-# 4. プロット
+# 5. ノードの次数とサイズ設定
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 6. グラフ描画
 ggraph(g, layout = "fr") +  
-  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +  # エッジの色を固定 (gray) & 太さ (abs(weight)で色と太さを調整)
-  geom_node_point(aes(color = type), size = 5) +  # ノードの色をタイプに基づいて変更
-  geom_node_text(aes(label = name), repel = TRUE) +  # ラベルを feature 名に修正
-  scale_edge_width(range = c(0.5, 2)) +  # エッジの太さを調整
-  scale_color_manual(values = node_colors) +  # ノードの色を設定 (タイプに基づいて色分け)
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
   theme_void() +
-  theme(legend.position = "right")  # 凡例の位置を右に設定
+  theme(legend.position = "right")
+
+
+```
+
+```{r}
+# 追加: Microbiome の family 抽出関数
+extract_family <- function(tax_str) {
+  family_match <- regmatches(tax_str, regexpr("f__[^;]+", tax_str))
+  ifelse(length(family_match) > 0, gsub("f__", "", family_match), NA)
+}
+
+if (cd == "Drought"){
+	target_nodes <- c("X235", "X53")
+	#target_nodes <- c("X235", "X53","X45","X75")
+} else if (cd=="Control"){
+	target_nodes <- c("X35", "X98", "X190", "Chr4_22035062")
+} else {
+	stop()
+}
+
+
+# 1. 相互作用行列からエッジリストを作成（しきい値超え）
+threshold <- 5e-05
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ターゲットノードを含む行だけにフィルタ
+edges_df <- edges_df %>% 
+  filter(from %in% target_nodes | to %in% target_nodes)
+
+# 3. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# 4. ノードタイプを設定
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+# 5. 表示用 label を生成
+micro_labels <- sapply(cm, extract_family)
+nodes <- nodes %>%
+  mutate(
+    label = case_when(
+      grepl("^X", name) ~ mm[as.numeric(gsub("X", "", name))],
+      grepl("^B", name) ~ micro_labels[as.numeric(gsub("B", "", name))],
+      TRUE ~ name
+    )
+  )
+
+# 6. 色分けのための色定義
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# 7. サブグラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 8. ノードの次数とサイズ設定
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 9. グラフ描画
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = label), repel = TRUE) +  # ← label 使用
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
+	  ggtitle(paste("Condition:", cd)) +
+  theme_void() +
+  theme(legend.position = "right")
+
+
+
+
+# 10. 対応表の作成（左を abc順に並び替え）
+edge_pairs <- edges_df %>%
+  filter(from %in% target_nodes | to %in% target_nodes) %>%
+  mutate(
+    target_node = ifelse(from %in% target_nodes, from, to),
+    partner_node = ifelse(from %in% target_nodes, to, from)
+  ) %>%
+  select(target_node, partner_node, weight) %>%
+  arrange(target_node, partner_node)
+
+# 11. CSV 書き出し
+
+
+# ラベル名を結合
+edge_pairs <- edge_pairs %>%
+  left_join(nodes[, c("name", "label")], by = c("target_node" = "name")) %>%
+  rename(target_label = label) %>%
+  left_join(nodes[, c("name", "label")], by = c("partner_node" = "name")) %>%
+  rename(partner_label = label)
+
+# 並び替えてからCSV出力（表示順：label→label）
+edge_pairs <- edge_pairs %>%
+  arrange(target_label, partner_label)
+
+#write.csv(edge_pairs, file = paste0("target_node_links_", cd, ".csv"), row.names = FALSE)
+
+
+```
+
+
+others check
+```{r}
+target_nodes <- c("X235", "X53","X45","X75")
+#target_nodes <-c("X35", "X98", "X190", "Chr4_22035062")
+cd="Drought"
+set.seed(123)
+if (cd == "Drought"){
+	imr<- readRDS(here("out","imr_d3"))
+} else if (cd=="Control"){
+	imr<- readRDS(here("out","imr_c2"))
+} else {
+	stop()
+}
+
+
+imr_l<-log10(imr+1)/2
+
+hist(imr_l)
+
+imr_l[imr_l < 0] <- 0
+
+# 4. 各列ごとにプラスの数をカウント
+positive_counts <- apply(imr_l, 2, function(x) sum(x > 0))
+
+# 5. 結果をベクトルとして表示
+print(positive_counts)
+
+# if (cd == "Drought"){
+# 	target_nodes <- c("X235", "X53")
+# } else if (cd=="Control"){
+# 	target_nodes <- c("X35", "X98", "X190", "Chr4_22035062")
+# } else {
+# 	stop()
+# }
+
+
+
+# 1. 相互作用行列からエッジリストを作成（しきい値超え）
+threshold <- 0
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ターゲットノードを含む行だけにフィルタ
+edges_df <- edges_df %>% 
+  filter(from %in% target_nodes | to %in% target_nodes)
+
+# 3. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# ノードタイプを設定
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# 4. サブグラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 5. ノードの次数とサイズ設定
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 6. グラフ描画
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
+  theme_void() +
+  theme(legend.position = "right")
+
+
+```
+
+
+```{r}
+
+target_nodes <- c("X235", "X53","X45","X75")
+#target_nodes <-c("X35", "X98", "X190", "Chr4_22035062")
+cd="Drought"
+set.seed(123)
+if (cd == "Drought"){
+	imr<- readRDS(here("out","imr_d3"))
+} else if (cd=="Control"){
+	imr<- readRDS(here("out","imr_c2"))
+} else {
+	stop()
+}
+
+
+imr_l<-log10(imr+1)/2
+
+hist(imr_l)
+
+imr_l[imr_l < 0] <- 0
+
+# 4. 各列ごとにプラスの数をカウント
+positive_counts <- apply(imr_l, 2, function(x) sum(x > 0))
+
+# 5. 結果をベクトルとして表示
+print(positive_counts)
+
+# if (cd == "Drought"){
+# 	target_nodes <- c("X235", "X53")
+# } else if (cd=="Control"){
+# 	target_nodes <- c("X35", "X98", "X190", "Chr4_22035062")
+# } else {
+# 	stop()
+# }
+
+
+
+# 1. 相互作用行列からエッジリストを作成（しきい値超え）
+threshold <- 5e-05
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ターゲットノードを含む行だけにフィルタ
+edges_df <- edges_df %>% 
+  filter(from %in% target_nodes | to %in% target_nodes)
+
+# 3. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# ノードタイプを設定
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# 4. サブグラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 5. ノードの次数とサイズ設定
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 6. グラフ描画
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
+  theme_void() +
+  theme(legend.position = "right")
+
+
+```
+
+
+
+
+```{r}
+cd = "Drought"
+# 追加: Microbiome の family 抽出関数
+extract_family <- function(tax_str) {
+  family_match <- regmatches(tax_str, regexpr("f__[^;]+", tax_str))
+  ifelse(length(family_match) > 0, gsub("f__", "", family_match), NA)
+}
+
+if (cd == "Drought"){
+	#target_nodes <- c("X235", "X53")
+	target_nodes <- c("X235", "X53","X45","X75")
+} else if (cd=="Control"){
+	target_nodes <- c("X35", "X98", "X190", "Chr4_22035062")
+} else {
+	stop()
+}
+
+
+# 1. 相互作用行列からエッジリストを作成（しきい値超え）
+threshold <- 5e-05
+edges <- which(imr_l > threshold, arr.ind = TRUE)
+edges_df <- data.frame(
+  from = rownames(imr_l)[edges[, 1]],
+  to = colnames(imr_l)[edges[, 2]],
+  weight = imr_l[edges]
+)
+
+# 2. ターゲットノードを含む行だけにフィルタ
+edges_df <- edges_df %>% 
+  filter(from %in% target_nodes | to %in% target_nodes)
+
+# 3. ノード情報の作成
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to)))
+
+# 4. ノードタイプを設定
+nodes <- nodes %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+# 5. 表示用 label を生成
+micro_labels <- sapply(cm, extract_family)
+nodes <- nodes %>%
+  mutate(
+    label = case_when(
+      grepl("^X", name) ~ mm[as.numeric(gsub("X", "", name))],
+      grepl("^B", name) ~ micro_labels[as.numeric(gsub("B", "", name))],
+      TRUE ~ name
+    )
+  )
+
+# 6. 色分けのための色定義
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# 7. サブグラフを作成
+g <- graph_from_data_frame(d = edges_df, vertices = nodes, directed = FALSE)
+
+# 8. ノードの次数とサイズ設定
+V(g)$degree <- degree(g)
+V(g)$size <- case_when(
+  V(g)$degree <= 3 ~ 2,
+  V(g)$degree > 3 & V(g)$degree <= 10 ~ 4,
+  V(g)$degree > 10 & V(g)$degree <= 20 ~ 8,
+  V(g)$degree > 20 ~ 12
+)
+V(g)$size <- factor(V(g)$size, levels = c(2, 4, 8, 12), labels = c("-3", "-10", "-20", "20+"))
+
+# 9. グラフ描画
+ggraph(g, layout = "fr") +  
+  geom_edge_link(aes(width = abs(weight)), color = "gray", alpha = 0.8) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = label), repel = TRUE) +  # ← label 使用
+  scale_edge_width(range = c(0.5, 2)) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 4, 8, 12)) + 
+  guides(size = guide_legend(title = "Node Size", title.position = "top", 
+                             labels = c("-3", "-10", "-20", "20+"), override.aes = list(color = "gray"))) +
+	  ggtitle(paste("Condition:", cd)) +
+  theme_void() +
+  theme(legend.position = "right")
+
+
+
+
+# 10. 対応表の作成（左を abc順に並び替え）
+edge_pairs <- edges_df %>%
+  filter(from %in% target_nodes | to %in% target_nodes) %>%
+  mutate(
+    target_node = ifelse(from %in% target_nodes, from, to),
+    partner_node = ifelse(from %in% target_nodes, to, from)
+  ) %>%
+  select(target_node, partner_node, weight) %>%
+  arrange(target_node, partner_node)
+
+# 11. CSV 書き出し
+
+# ラベル名を結合
+edge_pairs <- edge_pairs %>%
+  left_join(nodes[, c("name", "label")], by = c("target_node" = "name")) %>%
+  rename(target_label = label) %>%
+  left_join(nodes[, c("name", "label")], by = c("partner_node" = "name")) %>%
+  rename(partner_label = label)
+
+# 並び替えてからCSV出力（表示順：label→label）
+edge_pairs <- edge_pairs %>%
+  arrange(target_label, partner_label)
+
+#write.csv(edge_pairs, file = paste0("target_node_links4_", cd, ".csv"), row.names = FALSE)
+
+
+
+
 
 ```

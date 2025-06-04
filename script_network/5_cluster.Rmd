@@ -1,0 +1,322 @@
+---
+title: "5_pca"
+author: "Hayato Yoshioka"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r}
+require(here)
+source("Script/MyFunctions.R")
+library(ggplot2)
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+	
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+mir.cd<-Data$mir
+psc19<-Data$pheno
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(genome)
+dim(mic.cd)
+dim(met.cd)
+
+dim(imp_total)
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+#write.csv(mm,here("out","met_list.csv"))
+#write.csv(cm,here("out","micro_list.csv"))
+
+```
+
+
+```{r}
+domain <- sub("d__([^;]+);.*", "\\1", microname)
+
+# 出現頻度のテーブルを作成
+domain_table <- table(domain)
+
+# 結果を表示
+print(domain_table)
+# "Bacteria" というラベルだけを除いて表示
+
+non_bacteria <- microname[domain != "Bacteria"]
+
+# 結果を表示
+#print(non_bacteria)
+
+microname[domain %in% c("d__Eukaryota")]
+
+taxonomy_ae <- microname[domain %in% c("Archaea", "Eukaryota")]
+
+# 結果を表示
+#print(taxonomy_ae)
+
+write.csv(taxonomy_ae,"Archaea_Eukaryota.csv")
+```
+
+
+```{r}
+eig <- eigen(grm.cd)
+
+pc_df <- data.frame(
+  PC1 = eig$vectors[,1],
+  PC2 = eig$vectors[,2],
+  ID = rownames(grm.cd)  # optional: if you have individual IDs as rownames
+)
+
+
+ggplot(pc_df, aes(x = PC1, y = PC2, label = ID)) +
+  geom_point(alpha = 0.7) +
+  geom_text(vjust = 1.5, size = 3, check_overlap = TRUE) +  # optional
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal()
+```
+
+
+```{r}
+set.seed(123)  # for reproducibility
+
+c<-4
+
+km <- kmeans(pc_df[, c("PC1", "PC2")], centers = c)
+
+pc_df$cluster <- as.factor(km$cluster)
+
+library(ggplot2)
+
+ggplot(pc_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.8) +
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12)) +
+  labs(color = "Cluster")
+
+ggplot(pc_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_text(aes(label = ID), vjust = -1, size = 2.5) +  # ← ラベル追加部分
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12)) +
+  labs(color = "Cluster")
+
+
+```
+
+
+```{r}
+crm.cd<-tcrossprod(mic.cd) / ncol(mic.cd)
+
+eig <- eigen(crm.cd)
+
+pc_df <- data.frame(
+  PC1 = eig$vectors[,1],
+  PC2 = eig$vectors[,2],
+  ID = rownames(grm.cd)  # optional: if you have individual IDs as rownames
+)
+
+
+ggplot(pc_df, aes(x = PC1, y = PC2, label = ID)) +
+  geom_point(alpha = 0.7) +
+  geom_text(vjust = 1.5, size = 3, check_overlap = TRUE) +  # optional
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal()
+```
+
+---
+title: "5_pca"
+author: "Hayato Yoshioka"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r}
+require(here)
+source("Script/MyFunctions.R")
+library(ggplot2)
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+	
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+mir.cd<-Data$mir
+psc19<-Data$pheno
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(genome)
+dim(mic.cd)
+dim(met.cd)
+
+dim(imp_total)
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+#write.csv(mm,here("out","met_list.csv"))
+#write.csv(cm,here("out","micro_list.csv"))
+
+```
+
+
+```{r}
+domain <- sub("d__([^;]+);.*", "\\1", microname)
+
+# 出現頻度のテーブルを作成
+domain_table <- table(domain)
+
+# 結果を表示
+print(domain_table)
+# "Bacteria" というラベルだけを除いて表示
+
+non_bacteria <- microname[domain != "Bacteria"]
+
+# 結果を表示
+#print(non_bacteria)
+
+microname[domain %in% c("d__Eukaryota")]
+
+taxonomy_ae <- microname[domain %in% c("Archaea", "Eukaryota")]
+
+# 結果を表示
+#print(taxonomy_ae)
+
+write.csv(taxonomy_ae,"Archaea_Eukaryota.csv")
+```
+
+
+```{r}
+eig <- eigen(grm.cd)
+
+pc_df <- data.frame(
+  PC1 = eig$vectors[,1],
+  PC2 = eig$vectors[,2],
+  ID = rownames(grm.cd)  # optional: if you have individual IDs as rownames
+)
+
+
+ggplot(pc_df, aes(x = PC1, y = PC2, label = ID)) +
+  geom_point(alpha = 0.7) +
+  geom_text(vjust = 1.5, size = 3, check_overlap = TRUE) +  # optional
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal()
+```
+
+
+```{r}
+set.seed(123)  # for reproducibility
+
+c<-4
+
+km <- kmeans(pc_df[, c("PC1", "PC2")], centers = c)
+
+pc_df$cluster <- as.factor(km$cluster)
+
+library(ggplot2)
+
+ggplot(pc_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.8) +
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12)) +
+  labs(color = "Cluster")
+
+ggplot(pc_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_text(aes(label = ID), vjust = -1, size = 2.5) +  # ← ラベル追加部分
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12)) +
+  labs(color = "Cluster")
+
+
+```
+
+
+```{r}
+crm.cd<-tcrossprod(met.cd) / ncol(met.cd)
+
+eig <- eigen(crm.cd)
+
+pc_df <- data.frame(
+  PC1 = eig$vectors[,1],
+  PC2 = eig$vectors[,2],
+  ID = rownames(grm.cd)  # optional: if you have individual IDs as rownames
+)
+
+
+ggplot(pc_df, aes(x = PC1, y = PC2, label = ID)) +
+  geom_point(alpha = 0.7) +
+  geom_text(vjust = 1.5, size = 3, check_overlap = TRUE) +  # optional
+  xlab(paste0("PC1 (", round(100 * eig$values[1] / sum(eig$values), 2), "%)")) +
+  ylab(paste0("PC2 (", round(100 * eig$values[2] / sum(eig$values), 2), "%)")) +
+  theme_minimal()
+```
+
+
+
+
+
+
+

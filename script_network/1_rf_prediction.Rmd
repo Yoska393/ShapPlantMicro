@@ -253,7 +253,7 @@ g
 
 ```{r, fig.width = 7, fig.asp = 1}
 
-cd<-"Control"
+cd<-"Drought"
 
 print(cd)
 
@@ -270,7 +270,7 @@ if (cd == "Drought"){
 
 #imp.gm <- cbind(imp.g, imp.m,imp.met)
 
-imp.gm <- imp.gm[, colSums(imp.gm) >= 0.005]
+imp.gm <- imp.gm[, colSums(imp.gm) >= 0]
 
 res <- svd(imp.gm)
 contr <- res$d / sum(res$d)
