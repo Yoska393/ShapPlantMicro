@@ -1,13 +1,14 @@
 # Interpretable Machine Learning on Soybean Multi-Omics Data  
 **Reveals Drought-Driven Shifts of Plant–Microbe Interactions**
 
-This repository contains all scripts and notebooks used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
+This repository contains all scripts and data used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
 
-The pipeline combines prediction models, GWAS, SNP mapping, and SHAP value interpretation to identify key features and interactions driving drought responses in soybean.
+
 
 ---
 
-## 📂 Script
+## 📂 script_ShapPlantMicro
+All scripts 
 
 | File | Description |
 |------|--------------|
@@ -21,7 +22,8 @@ The pipeline combines prediction models, GWAS, SNP mapping, and SHAP value inter
 
 ---
 
-## Multi-Omics Data (Genome, Microbiome, Metabolome, Phenotype)
+## 📂 data 
+Multi-omics data (Genome, Microbiome, Metabolome, Phenotype)
 
 | File | Description |
 |------|--------------|
