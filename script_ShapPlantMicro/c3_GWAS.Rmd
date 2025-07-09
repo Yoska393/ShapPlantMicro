@@ -1,0 +1,285 @@
+
+required packages
+```{r, message =F}
+require(gaston)
+require(here)
+library(ggplot2)
+library(dplyr)
+
+library(here)
+```
+
+
+```{r}
+plot_snp_map <- function(condition, rf_snps, condition_label) {
+  snps <- union(condition, rf_snps)
+  
+  # SNPごとのラベル作成
+  plot_df <- result %>%
+    filter(!is.na(p)) %>%
+    select(chr, pos, id, p) %>%
+    filter(id %in% snps) %>%
+    mutate(
+      chr = as.character(chr),
+      label = case_when(
+        id %in% condition & id %in% rf_snps ~ list(c("GWAS", "RF")),
+        id %in% condition ~ list("GWAS"),
+        id %in% rf_snps ~ list("RF")
+      )
+    ) %>%
+    tidyr::unnest(label)
+  
+  # 矢印データ
+  arrow_df <- plot_df %>%
+    mutate(
+      chr_num = as.numeric(chr),
+      x = chr_num,
+      x_start = case_when(
+        label == "GWAS" ~ chr_num - 0.45,
+        label == "RF" ~ chr_num + 0.45
+      ),
+      x_end = chr_num
+    )
+  
+  # 染色体バー
+  chr_bar_df <- result %>%
+    filter(!is.na(p)) %>%
+    group_by(chr = as.character(chr)) %>%
+    summarise(
+      min_pos = min(pos),
+      max_pos = max(pos),
+      x = unique(as.numeric(chr))
+    )
+  
+  x_limits <- range(chr_bar_df$x) + c(-0.6, 0.6) 
+  
+  # 描画
+  ggplot() +
+    geom_segment(data = chr_bar_df,
+                 aes(x = x, xend = x, y = min_pos, yend = max_pos),
+                 size = 3, color = "gray60") +
+    geom_segment(data = arrow_df,
+                 aes(x = x_start, xend = x_end, y = pos, yend = pos, color = label),
+                 arrow = arrow(length = unit(0.2, "cm")), size = 0.5) +
+    scale_x_continuous(
+      breaks = chr_bar_df$x,
+      labels = paste0("Chr", chr_bar_df$chr),
+      limits = x_limits,
+      expand = expansion(add = 0.6)
+    ) +
+    scale_color_manual(values = c("GWAS" = "orange", "RF" = "blue")) +
+    theme_minimal(base_size = 14) +
+    theme(
+      axis.title = element_blank(),
+      axis.text.y = element_text(size = 11),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid = element_blank()
+    ) +
+    labs(
+      title = paste("Selected SNP: GWAS / RF (", condition_label, ")", sep = ""),
+      color = "Model"
+    )
+}
+
+```
+
+
+```{r}
+#data
+data_control <- readRDS(here("data/SoyData_Control2.RDS"))
+data_drought <- readRDS(here("data/SoyData_Drought2.RDS"))
+
+#ohenotype
+pheno_c <- data_control$pheno
+pheno_d <- data_drought$pheno
+
+# common_ids <- intersect(rownames(pheno_c), rownames(pheno_d))
+# 
+# pheno_c_common <- pheno_c[common_ids, ]
+# pheno_d_common <- pheno_d[common_ids, ]
+# 
+# pheno_diff <- pheno_d_common - pheno_c_common
+# 
+# head(pheno_diff)
+```
+
+
+```{r}
+bm <- read.vcf(
+  here("data", "Gm198_HCDB_190207.fil.snp.remHet.MS0.95_bi_MQ20_DP3-1000.MAF0.025.imputed.v2.chrnum.LD0.95.vcf.gz"))
+
+dim(bm)
+
+#bm@snps$id
+head(bm@snps$id)[1:5]
+
+```
+
+
+
+```{r}
+set.seed(123)
+
+grm <- GRM(bm.NonNA.maf)
+
+dim(grm)
+
+eigen.grm <- eigen(grm)
+#PCA
+pc_scores <- eigen.grm$vectors[, 1:10]
+rownames(pc_scores) <- rownames(grm)
+
+
+
+#l means
+km <- kmeans(pc_scores[,1:3], centers = 3)
+
+#plot
+plot(pc_scores[,1], pc_scores[,2],
+     col = km$cluster, pch = 19,
+     xlab = "PC1", ylab = "PC2", main = "K-means clustering on GRM PCA")
+legend("topleft",                           
+       legend = paste("Cluster", 1:max(km$cluster)), 
+       col = 1:max(km$cluster),            
+       pch = 19)
+
+plot(pc_scores[,1], pc_scores[,3],
+     col = km$cluster, pch = 19,
+     xlab = "PC1", ylab = "PC3", main = "K-means clustering on GRM PCA")
+
+plot(pc_scores[,2], pc_scores[,3],
+     col = km$cluster, pch = 19,
+     xlab = "PC2", ylab = "PC3", main = "K-means clustering on GRM PCA")
+
+```
+
+```{r,fig.height=4,fig.width=6}
+
+
+condition_snps_list  <- list()
+
+
+cd2<-c("Control","Drought")
+for (cd in cd2){
+
+if (cd == "Control"){
+	Soy_pheno <- pheno_c
+} else if (cd=="Drought"){
+	Soy_pheno <- pheno_d
+} else{
+	stop("error")
+}
+
+
+trait.name <- "DryWeight_Leaves_g"
+# y <- Soy_pheno[, trait.name]
+y <- Soy_pheno[, trait.name]
+names(y) <- rownames(Soy_pheno)
+
+bm.maf <- select.snps(x = bm, condition = maf>=0.05)
+bm.maf@ped$pheno <- y[bm@ped$id]
+
+bm.NonNA <- select.inds(x = bm.maf, condition = !is.na(pheno))
+bm.NonNA.maf <- select.snps(x = bm.NonNA, condition = maf>=0.05)
+
+
+standardize(bm.NonNA.maf) <- "mu_sigma"
+
+
+grm <- GRM(bm.NonNA.maf)
+
+dim(grm)
+
+eigen.grm <- eigen(grm)
+
+
+cluster_info <- km$cluster
+names(cluster_info) <- rownames(pc_scores)
+
+bm@ped$pheno <- y[bm@ped$id]
+bm@ped$cluster <- cluster_info[bm@ped$id]
+df <- data.frame(
+  id = bm@ped$id,
+  phenotype = y[bm@ped$id],
+  cluster = as.factor(cluster_info[bm@ped$id])
+)
+
+#NA
+df <- df[!is.na(df$phenotype) & !is.na(df$cluster), ]
+
+#Boxplot
+boxplot(phenotype ~ cluster, data = df,
+        xlab = "Cluster", ylab = "Phenotype",
+        main = "Phenotype Distribution by Cluster")
+
+result <- association.test(x = bm.NonNA.maf,method = "lmm",test = "wald",K=grm, eigenK = eigen.grm, p = 3)
+#gaston::manhattan(x = result)
+
+
+# 1. Calculate the maximum -log10(p) across all clusters
+max_logp <- 0
+logp_k <- -log10(result$p[result$p > 0])
+max_logp <- max(max_logp, max(logp_k, na.rm = TRUE))
+
+# 2. Plot with unified Y-axis
+ # Arrange plots horizontally
+
+p_c<-1e-5
+# Extract significant SNPs
+sig_snps <- result[result$p < p_c, "id"]
+sig_snps <- sig_snps[!is.na(sig_snps)]
+
+condition_snps_list[[cd]] <- sig_snps
+
+
+# Manhattan plot with unified Y-axis
+gaston::manhattan(
+  result,
+  main = cd,
+  pch = 20,
+  cex = 0.6,
+  ylim = c(0, 8)
+)
+
+abline(h = -log10(p_c), col = "red", lty = 4)  # Significance
+
+}
+
+```
+
+
+```{r}
+# 1. Load and combine important feature names from drought and control RF models
+imp_common_cols <- list(Drought=
+  colnames(readRDS(here("out", "imp_RF2_d.RDS")))[colSums(readRDS(here("out", "imp_RF2_d.RDS"))) > 0.01],
+  Control= colnames(readRDS(here("out", "imp_RF2_c.RDS")))[colSums(readRDS(here("out", "imp_RF2_c.RDS"))) > 0.01]
+)
+
+# 2. Extract SNP features and zero-pad chromosome numbers (Chr1_ → Chr01_)
+chr_snps_padded_d <- gsub("^Chr([0-9])_", "Chr0\\1_", grep("^Chr[0-9]+_", imp_common_cols$Drought, value = TRUE))
+
+chr_snps_padded_c <- gsub("^Chr([0-9])_", "Chr0\\1_", grep("^Chr[0-9]+_", imp_common_cols$Control, value = TRUE))
+
+
+chr_snps_padded<-union(chr_snps_padded_c,chr_snps_padded_d)
+```
+
+
+
+```{r}
+# 1. CONTROL
+plot_snp_map(condition_snps_list$Control, chr_snps_padded_c, "Control")
+
+# 2. DROUGHT
+plot_snp_map(condition_snps_list$Drought, chr_snps_padded_d, "Drought")
+
+# 3. COMBINED (Control + Drought)
+plot_snp_map(
+  union(condition_snps_list$Control, condition_snps_list$Drought),
+  union(chr_snps_padded_c, chr_snps_padded_d),
+  "Control & Drought"
+)
+
+```
+
+

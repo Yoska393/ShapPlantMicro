@@ -1,0 +1,467 @@
+---
+title: "7_2_factor careful"
+author: "Hayato Yoshioka"
+date: "2025-06-05"
+output: html_document
+---
+
+SHAP for one factor
+
+```{r}
+require(here)
+source("Script/MyFunctions.R")
+library(iml)
+require(ranger)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(progress)
+library(here)
+library(stringr)
+
+
+extract_genus <- function(tax_str, rowname) {
+  # Extract genus: pattern "g__XXXX"
+  genus_match <- regmatches(tax_str, regexpr("g__[^;]+", tax_str))
+  
+  # Remove "g__" if found
+  if (length(genus_match) > 0) {
+    genus <- gsub("g__", "", genus_match)
+  } else {
+    genus <- NA
+  }
+  
+  # Return rowname if genus is NA, empty, or 'uncultured'
+  if (is.na(genus) || genus == "" || tolower(genus) == "uncultured") {
+    return(rowname)
+  } else {
+    return(genus)
+  }
+}
+
+
+get_X_selected <- function(condition){
+  if (condition == "Drought") {
+    Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+  } else if (condition == "Control") {
+    Data <- readRDS(here("data/SoyData_Control2.RDS"))
+  } else {
+    stop("Unknown condition")
+  }
+
+  genome <- scale(Data$genome)
+  met.cd <- scale(Data$met)
+  mic.cd <- scale(Data$mic)
+  X_all <- cbind(genome, mic.cd, met.cd)
+
+  # imp_common_cols に基づいて選択
+  selected_columns <- intersect(imp_common_cols, colnames(X_all))
+  X_selected <- X_all[, selected_columns, drop = FALSE]
+  return(X_selected)
+}
+get_label <- function(name) {
+  if (str_starts(name, "X")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "X")))
+    if (!is.na(idx) && idx %in% 1:nrow(mm)) {
+      out_label <- mm[idx, 1]
+    } else {
+      out_label <- NA
+    }
+  } else if (str_starts(name, "B")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "B")))
+    if (!is.na(idx) && idx %in% 1:length(micro_labels_genus)) {
+      out_label <- micro_labels_genus[idx]
+    } else {
+      out_label <- NA
+    }
+  } else {
+    out_label <- name
+  }
+
+  if (!is.na(out_label)) {
+    out_label <- substr(out_label, 1, 60)
+  }
+
+  return(out_label)
+}
+
+
+
+```
+
+
+```{r}
+# 1. 両方の重要度ファイルを読み込み
+imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
+imp_control <- readRDS(here("out", "imp_RF2_c.RDS"))
+
+
+# 2. 各条件で重要度の高い列を抽出（しきい値 0.01）
+imp_d_cols <- colnames(imp_drought)[colSums(imp_drought) >= 0.01]
+imp_c_cols <- colnames(imp_control)[colSums(imp_control) >= 0.01]
+
+# 3.カバーする重要な特徴量
+imp_common_cols <- union(imp_d_cols, imp_c_cols)
+
+# 4. 各条件で X_selected を作成
+X_selected_drought <- get_X_selected("Drought")
+X_selected_control <- get_X_selected("Control")
+
+# 5. 最終的に両者に共通する列名だけを残す
+common_features <- intersect(colnames(X_selected_drought), colnames(X_selected_control))
+
+X_selected_drought <- X_selected_drought[, common_features, drop = FALSE]
+X_selected_control <- X_selected_control[, common_features, drop = FALSE]
+
+# 結果表示
+cat("共通する特徴量の数:", length(common_features), "\n")
+cat("X_selected_drought の次元:", dim(X_selected_drought), "\n")
+cat("X_selected_control の次元:", dim(X_selected_control), "\n")
+```
+
+
+```{r}
+all_sums <- c(colSums(imp_drought), colSums(imp_control))
+range_all <- range(all_sums)
+
+range_all<-c(0,0.02)
+# 同じ breaks と xlim を使って比較
+hist(colSums(imp_drought), 
+      main = expression("RF Importance (" * i[k] * ") - Drought"),
+		 #sub = "(sum across all biomass phenotypes)",
+     xlim = range_all, 
+		 ylim = c(0,5000),
+     breaks = 100, 
+     col = rgb(1, 0, 0, 0.5),
+		 ylab = "Number of features",
+     xlab = expression("Sum of importance values across phenotypes (" * i[k] * ")"))
+
+hist(colSums(imp_control), 
+      main = expression("RF Importance (" * i[k] * ") - Control"),
+		 #sub = "(sum across all biomass phenotypes)",
+     xlim = range_all, 
+		 ylim = c(0,5000),
+     breaks = 100, 
+     col = rgb(0, 0, 1, 0.5),
+		 ylab = "Number of features",
+     xlab = expression("Sum of importance values across phenotypes (" * i[k] * ")"))
+
+
+```
+
+# SHAP net
+```{r}
+set.seed(123)
+
+
+cd2<- c("Control","Drought")
+for (cd in cd2) {
+
+# Combine and scale feature sets
+#cd<-"Control" 
+#cd<-"Drought" 
+
+if (cd == "Drought") {
+  X <- X_selected_drought
+  Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+} else if (cd == "Control") {
+  X <- X_selected_control
+  Data <- readRDS(here("data/SoyData_Control2.RDS"))
+} else {
+  stop("Unknown condition")
+}
+
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+
+psc19<-Data$pheno
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+mm <- gsub(
+  pattern = "^(DL-|L-\\(-\\)|D-\\(-\\)|L-|D-|(+-)-|(-)-)|(+-)-|D-", 
+  replacement = "", 
+  x = mm
+)
+
+
+mm[182]<-"Marein"
+mm[187]<-"Sodium pantothenate"
+mm[189]<-"Mannose-6-phosphate"
+mm[190]<-"Fructose-6-phosphate"
+mm[197]<-"Mannitol"
+mm[208]<-"Indole-3-carboxyaldehyde"
+mm[53]<-"Ornithine"
+mm[75]<-"GABA"
+mm[38] <-"2,3-Diaminopropionic acid"
+mm[102]<-"Quinic acid"
+mm[227]<-"Quercetin 3-Glucoside"
+mm[205]<-"Threonine"
+mm[206]<-"2-Aminobutyric acid"
+mm[188]<- "Glucose-1-phosphate"
+
+micro_labels_genus <- mapply(extract_genus, cm[,1], rownames(cm))
+
+
+dim(X)
+X <- scale(X)
+X <- data.frame(X)
+
+# Load target variable (phenotype)
+Y <- data.frame(psc19)
+
+#X<-X[c(1:3),]
+#Y<-Y[c(1:3),]
+
+# Check dimensions (optional)
+dim(X)
+dim(Y)
+
+# Initialize list to store SHAP results
+shap_all <- list()
+
+# Loop over phenotype(s), here using only the first one for simplicity
+for (i in 1) {
+  cat("Processing phenotype:", colnames(Y)[i], "\n")
+
+  # Create a new dataframe that includes the response variable
+  df <- X
+  df[[colnames(Y)[i]]] <- Y[[i]]
+
+  # Train a random forest model using ranger
+  rf_model <- ranger(
+    formula = as.formula(paste(colnames(Y)[i], "~ .")),
+    data = df
+    #,num.trees = 100
+  )
+
+  # Create an iml Predictor object
+  predictor <- Predictor$new(rf_model, data = X, y = Y[[i]])
+
+  # Add a progress bar to track SHAP computation
+  pb <- progress_bar$new(
+    format = "  SHAP calculation [:bar] :percent in :elapsed",
+    total = nrow(X), clear = FALSE, width = 60
+  )
+
+  # Compute SHAP values for each sample
+  shap_all_results <- lapply(1:nrow(X), function(j) {
+  #shap_all_results <- lapply(1:4, function(j) {
+    pb$tick()
+    shap <- Shapley$new(predictor, x.interest = X[j, , drop = FALSE])
+    shap$results
+  })
+
+  # Combine SHAP results into a single dataframe
+  shap_df <- do.call(rbind, shap_all_results)
+  colnames(shap_df) <- c("feature", "phi", "feature_value")
+
+  # Save SHAP results
+  shap_all[[colnames(Y)[i]]] <- shap_df
+}
+
+# Extract SHAP results for the first phenotype
+shap_df <- shap_all[[colnames(Y)[1]]]
+shap_df <- shap_df[, !is.na(colnames(shap_df))]
+
+#saveRDS(shap_df,here("out",paste0("shap_df",cd,"_def.rds")))
+
+}
+```
+
+
+
+```{r}
+
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+# Load SHAP data for each condition
+shap_df_control <- readRDS(here("out", "shap_dfControl_def.rds"))
+shap_df_drought <- readRDS(here("out", "shap_dfDrought_def.rds"))
+
+get_shap_summary <- function(shap_df, condition_name) {
+  shap_df %>%
+    group_by(feature) %>%
+    summarise(mean_phi = mean(abs(phi)), .groups = "drop") %>%
+    mutate(condition = condition_name)
+}
+
+shap_control <- get_shap_summary(shap_df_control, "Control")
+shap_drought <- get_shap_summary(shap_df_drought, "Drought")
+add_group_and_label <- function(df) {
+  df %>%
+    mutate(
+      group = case_when(
+        str_starts(feature, "C") ~ "Genome",
+        str_starts(feature, "B") ~ "Microbiome",
+        str_starts(feature, "X") ~ "Metabolome",
+        TRUE ~ "Other"
+      ),
+      label = sapply(feature, get_label)
+    ) %>%
+    filter(!is.na(label))
+}
+
+shap_control <- add_group_and_label(shap_control)
+shap_drought <- add_group_and_label(shap_drought)
+
+###
+shap_top_control <- shap_control %>% top_n(20, mean_phi)
+# 
+# ggplot(shap_top_control, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
+#   geom_col() +
+#   coord_flip() +
+#   scale_fill_manual(values = node_colors) +
+#   labs(
+#     title = "Top 20 SHAP Values – Control",
+#     x = "Feature",
+#     y = "Mean Absolute SHAP Value",
+#     fill = "Feature Group"
+#   ) +
+#   theme_minimal()
+
+shap_top_drought <- shap_drought %>% top_n(20, mean_phi)
+
+# ggplot(shap_top_drought, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
+#   geom_col() +
+#   coord_flip() +
+#   scale_fill_manual(values = node_colors) +
+#   labs(
+#     title = "Top 20 SHAP Values – Drought",
+#     x = "Feature",
+#     y = "Mean Absolute SHAP Value",
+#     fill = "Feature Group"
+#   ) +
+#   theme_minimal()
+
+
+```
+
+
+
+```{r,fig.height=5,fig.width=15}
+library(patchwork)
+
+
+p1 <- ggplot(shap_top_control, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = node_colors) +
+  scale_y_continuous(limits = c(0, 0.05), expand = c(0, 0)) +
+  labs(
+    title = "Top 20 SHAP Values – Control",
+    x = "Feature",
+    y = "Mean Absolute SHAP Value",
+    fill = "Feature Group"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+p2 <- ggplot(shap_top_drought, aes(x = reorder(label, mean_phi), y = mean_phi, fill = group)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = node_colors) +
+  scale_y_continuous(limits = c(0, 0.05), expand = c(0, 0)) +
+  labs(
+    title = "Top 20 SHAP Values – Drought",
+    x = "Feature",
+    y = "Mean Absolute SHAP Value",
+    fill = "Feature Group"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+# 並べる
+p2 + p1
+
+```
+
+
+```{r,fig.width=9}
+
+shap_ratio <- full_join(
+  shap_control %>% select(feature, mean_phi_control = mean_phi),
+  shap_drought %>% select(feature, mean_phi_drought = mean_phi),
+  by = "feature"
+) %>%
+  mutate(
+    ratio = mean_phi_drought / mean_phi_control,
+    log2_ratio = log2(ratio),
+    label = sapply(feature, get_label),
+    group = case_when(
+      str_starts(feature, "C") ~ "Genome",
+      str_starts(feature, "B") ~ "Microbiome",
+      str_starts(feature, "X") ~ "Metabolome",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  filter(!is.na(ratio), is.finite(ratio), !is.na(label))
+
+
+#```{r}
+# Top 10 Up and Down
+shap_ratio_up <- shap_ratio %>%
+  filter(log2_ratio > 2.5) %>%
+  arrange(desc(log2_ratio)) %>%
+  slice_head(n = 20)
+
+shap_ratio_down <- shap_ratio %>%
+  filter(log2_ratio < -2.5) %>%
+  arrange(log2_ratio) %>%
+  slice_head(n = 20)
+
+
+
+#Combine both
+shap_ratio_combined <- bind_rows(shap_ratio_up, shap_ratio_down)
+
+shap_ratio_combined$label[shap_ratio_combined$label == "B113"] <- "Uncultured (Methylophilaceae)"
+shap_ratio_combined$label[shap_ratio_combined$label == "B356"] <- "Uncultured (Comamonadaceae)"
+
+
+# Plot
+ggplot(shap_ratio_combined, aes(x = reorder(label, log2_ratio), y = log2(ratio), fill = group)) +
+  geom_col() +
+	#geom_hline(yintercept = 2, linetype = "dashed", color = "gray50") +
+	#geom_hline(yintercept = -2, linetype = "dashed", color = "gray50") +
+  coord_flip() +
+  #geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  scale_fill_manual(values = node_colors) +
+  labs(
+    title = "Selected features by SHAP value (Drought / Control)",
+    x = "Feature",
+    y = "log2( mean absolute SHAP Ratio: Drought / Control)",
+    fill = "Feature Group"
+  ) +
+	#scale_y_continuous(breaks = seq(-6, 6, by = 1)) + 
+  theme_minimal() +
+theme(
+  axis.text.y = element_text(size = 12),
+  axis.text.x = element_text(size = 12),
+  plot.title = element_text(size = 14, face = "bold")
+)
+
+
+```
+
+

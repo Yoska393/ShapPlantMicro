@@ -1,0 +1,199 @@
+---
+title: "11_snps_map"
+author: "Hayato Yoshioka"
+date: "2025-06-06"
+output: html_document
+---
+
+required packages
+```{r, message =F}
+require(gaston)
+require(here)
+library(stringr)
+```
+
+```{r}
+cd = "Control"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+
+genome<-Data$genome
+
+#colnames(genome)
+ 
+# head(colnames(genome))
+```
+
+
+```{r}
+bm <- read.vcf(
+  here("data", "Gm198_HCDB_190207.fil.snp.remHet.MS0.95_bi_MQ20_DP3-1000.MAF0.025.imputed.v2.chrnum.LD0.95.vcf.gz"))
+
+dim(bm)
+```
+
+
+```{r}
+#fill 0
+fix_chr_names <- function(chr_vec) {
+  chr_num <- as.numeric(gsub("Chr", "", chr_vec))    
+  sprintf("Chr%02d", chr_num)            
+}
+fix_snp_names <- function(snp_ids) {
+  str_replace_all(snp_ids, "Chr(\\d+)_", function(m) {
+    chr_num <- as.numeric(str_extract(m, "\\d+"))
+    sprintf("Chr%02d_", chr_num)
+  })
+}
+# Extract position from SNP IDs
+extract_pos <- function(ids) as.numeric(sub(".*_(\\d+)$", "\\1", ids))
+
+# Extract chromosome number (01–20)
+extract_chr_num <- function(ids) as.numeric(sub("Chr(\\d+)_.*", "\\1", ids))
+
+# Build a genome-wide pseudo-position: chr_num * 1e8 + position
+make_genome_pos <- function(ids) {
+  chr <- extract_chr_num(ids)
+  pos <- extract_pos(ids)
+  chr * 1e8 + pos
+}
+
+
+extract_chr <- function(ids) sub("_(\\d+)$", "", ids)
+
+
+all_chr_dist <- table(extract_chr(bm@snps$id))
+subset_chr_dist <- table(extract_chr(colnames(genome)))
+
+
+names(subset_chr_dist) <- fix_chr_names(names(subset_chr_dist))
+
+
+
+```
+
+
+```{r}
+# Apply the name fix to subset_chr_dist
+names(subset_chr_dist) <- fix_chr_names(names(subset_chr_dist))
+
+# Make sure both tables have the same chromosome list
+all_chr_names <- union(names(all_chr_dist), names(subset_chr_dist))
+
+# Fill in any missing chromosomes with 0
+all_counts <- all_chr_dist[all_chr_names]
+subset_counts <- subset_chr_dist[all_chr_names]
+all_counts[is.na(all_counts)] <- 0
+subset_counts[is.na(subset_counts)] <- 0
+
+# Compute the proportion of SNPs retained in the subset per chromosome
+subset_ratio <- subset_counts / all_counts
+
+# Plot the result
+barplot(subset_ratio,
+        main = "Proportion of SNPs per Chromosome in Subset",
+        ylab = "Proportion",
+        xlab = "Chromosome",
+        las = 2)
+
+
+```
+
+```{r}
+get_hist_data <- function(ids, bin_size = 1e6) {
+  chr <- extract_chr_num(ids)
+  pos <- extract_pos(ids)
+  chr_label <- sprintf("Chr%02d", chr)
+  offset <- chr_start[chr_label]
+  x_pos <- pos + offset
+  bins <- floor(x_pos / bin_size) * bin_size
+  bin_table <- table(bins)
+  data.frame(pos = as.numeric(names(bin_table)), count = as.numeric(bin_table))
+}
+
+chr_lengths <- tapply(extract_pos(bm@snps$id), extract_chr_num(bm@snps$id), max)
+
+chr_start <- cumsum(c(0, head(chr_lengths, -1)))
+names(chr_start) <- sprintf("Chr%02d", 1:20)
+
+extract_chr_num <- function(ids) as.numeric(sub("Chr(\\d+)_.*", "\\1", ids))
+
+
+
+hist_all <- get_hist_data(bm@snps$id)
+hist_subset <- get_hist_data(fix_snp_names(colnames(genome)))
+```
+
+
+
+
+
+```{r}
+# Set 2-panel layout (2 rows, 1 column) and margins: bottom=4, left=2, top=3, right=2
+par(mfrow = c(2, 1), mar = c(4, 2, 3, 2))
+
+# Determine the shared y-axis max between both datasets
+ymax <- max(hist_all$count, hist_subset$count)
+
+# Function to draw alternating background stripes
+draw_chrom_stripes <- function(chr_start, chr_lengths, ymax) {
+  for (i in seq_along(chr_start)) {
+    rect(
+      xleft = chr_start[i],
+      xright = chr_start[i] + chr_lengths[i],
+      ybottom = 0,
+      ytop = ymax,
+      col = ifelse(i %% 2 == 0, "gray90", "gray70"),
+      border = NA
+    )
+  }
+}
+
+# --- Plot for All SNPs ---
+plot(hist_all$pos, hist_all$count, type = "n",
+     xlab = "", ylab = "SNP count",
+     main = sprintf("All SNPs count (Total: %d)", sum(hist_all$count)),
+     ylim = c(0, ymax), xaxt = "n")
+
+# Add chromosome stripes
+draw_chrom_stripes(chr_start, chr_lengths, ymax)
+
+# Add the data
+lines(hist_all$pos, hist_all$count, type = "h", col = "gray20", lwd = 2)
+
+# Add vertical lines to mark chromosome boundaries
+abline(v = chr_start, col = "gray0", lty = 2)
+
+# Add chromosome names
+axis(1, at = chr_start + chr_lengths / 2, labels = names(chr_start), las = 2)
+
+# --- Plot for Subset SNPs ---
+plot(hist_subset$pos, hist_subset$count, type = "n",
+     xlab = "", ylab = "SNP count",
+     main = sprintf("Subset SNPs count (Total: %d)", sum(hist_subset$count)),
+     ylim = c(0, 10), xaxt = "n")
+
+# Add chromosome stripes
+draw_chrom_stripes(chr_start, chr_lengths, 10)
+
+# Add the data
+lines(hist_subset$pos, hist_subset$count, type = "h", col = "gray20", lwd = 2)
+
+# Add vertical chromosome separators
+abline(v = chr_start, col = "gray0", lty = 2)
+
+# Add chromosome names
+axis(1, at = chr_start + chr_lengths / 2, labels = names(chr_start), las = 2)
+
+```
+

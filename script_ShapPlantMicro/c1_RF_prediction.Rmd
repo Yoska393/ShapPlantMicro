@@ -1,0 +1,489 @@
+---
+title: "rf"
+author: "Hayato Yoshioka"
+date: "2025-03-03"
+output: html_document
+---
+
+from 58
+
+```{r, message =F}
+require(BGLR)
+library(dplyr)
+require(here)
+require(ggplot2)
+require(reshape2)
+# require(gridExtra)
+# library(readr)
+library(stringr)
+# library(ggsci)
+library(RAINBOWR)
+# library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+# library(doRNG)
+library(tictoc)
+library(doSNOW)
+library(purrr)
+source("Script/MyFunctions.R")
+
+require(ranger)
+require(ggrepel)
+# require(tidyverse)
+library(rrda)
+
+library(ggrepel)
+library(grid) 
+
+getwd()
+```
+
+seed
+```{r, message =F}
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+} else{
+	stop()
+}
+
+
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+mir.cd<-Data$mir
+psc19<-Data$pheno
+miname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(mic.cd)
+dim(met.cd)
+
+```
+
+# RF for pheno
+
+prepare datasets
+```{r}
+X.list <- vector("list", 7)
+X.list[[1]] <- genome
+X.list[[2]] <- mic.cd
+X.list[[3]] <- cbind(genome, mic.cd)
+X.list[[4]] <- met.cd
+X.list[[5]] <- cbind(genome, met.cd)
+X.list[[6]] <- cbind(mic.cd, met.cd)
+X.list[[7]] <- cbind(genome, mic.cd, met.cd)
+names(X.list) <- c("G",
+                "M",
+                "GM",
+                "Met",
+                "GMet",
+                "MMet", 
+                "GMMet")
+
+```
+
+```{r,eval=T}
+set.seed(123)
+Y <- psc19
+importance.list <- vector("list", ncol(Y))
+names(importance.list) <- colnames(Y)
+for(i in 1:ncol(Y)) {
+  target <-  colnames(Y)[i]
+  print(paste(i, target))
+  y <- Y[, target]
+  
+  importance <- vector("list", length(X.list))
+  names(importance) <- names(X.list)
+  for(j in 1:length(X.list)) {
+    #print(names(X.list)[j])
+    dat <- data.frame(y, X.list[[j]])
+    model <- ranger(y ~ ., data = dat, importance = "impurity")
+    importance[[j]] <- model$variable.importance
+  }
+  importance.list[[i]] <- importance
+}
+```
+
+Replace the name of traits
+```{r}
+names(importance.list) <- c("LeafDryWeight", "ShootDryWeight",
+                          "ShootFreshWeight", "LeafFreshWeight",
+                          "GrowthStage", "NumberOfNodes",
+                          "NumberOfBranches", "PlantHeight", "MainStemLength")
+```
+
+```{r, fig.height=4, fig.asp = 1}
+importance <- NULL
+for(i in 1:length(importance.list)) {
+  importance <- rbind(importance, importance.list[[i]]$GMMet)
+}
+rownames(importance) <- names(importance.list)
+```
+
+normalize (non)
+```{r}
+imp.norm<-importance
+imp.norm <- diag(1 / apply(importance, 1, sum)) %*% importance
+
+rownames(imp.norm) <- rownames(importance)
+```
+
+devide
+```{r}
+imp.g <- imp.norm[, 1:ncol(genome)]
+imp.m <- imp.norm[, (ncol(genome)+1):(ncol(genome)+ncol(mic.cd))]
+imp.met <- imp.norm[, (ncol(genome)+ncol(mic.cd)+1):ncol(imp.norm)]
+```
+
+## SVD analysis
+
+## pheno
+```{r, fig.width = 6, fig.asp = 1}
+imp.gm <- cbind(imp.g, imp.m,imp.met)
+
+imp.gm <- imp.gm[, colSums(imp.gm) >= 0.005]
+
+res <- svd(imp.gm)
+contr <- res$d / sum(res$d)
+
+
+rownames(res$u) <- rownames(imp.gm)
+rownames(res$v) <- colnames(imp.gm)
+
+ud <- res$u %*% diag(sqrt(res$d))
+vd <- res$v %*% diag(sqrt(res$d))
+
+df.u <- data.frame(ud[, 1:2] , Type = "Phenotype", Name = rownames(ud))
+
+type <- rep("Other", nrow(vd))
+type[substr(rownames(vd), 1,1) == "X"] <- "Metabolome"
+type[substr(rownames(vd), 1,1) == "C"] <- "Genotype"
+type[substr(rownames(vd), 1,1) == "B"] <- "Microbiome"
+df.v <- data.frame(vd[, 1:2], Type = type, Name = rownames(vd))
+df <- data.frame(rbind(df.u, df.v))
+
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+
+head(df)
+
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type))
+g <- g + geom_point(shape = 21,alpha=1) 
+g <- g + geom_label_repel(aes(label = Name),
+                  box.padding   = 0.9, 
+                  point.padding = 0.8,
+                  segment.color = 'grey50',
+                  #max.overlaps = 40,
+                  cex=2,alpha=0.9,show.legend= FALSE )
+g<- g + scale_color_manual(values = c( "#FC4E07","#E7B800","#00AFBB","darkgreen"))
+g
+
+```
+
+```{}
+imp_total<-cbind(imp.g,imp.m, imp.met )
+
+
+if (cd == "Drought"){
+	saveRDS(imp_total,here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	saveRDS(imp_total,here("out","imp_RF2_c.RDS"))
+}
+
+
+```
+
+```{r, fig.width = 7, fig.asp = 1}
+
+df <- data.frame(rbind(df.u, df.v))
+
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+
+head(df)
+
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type)) +
+
+  geom_segment(data = df[1:9, ], 
+               aes(x = 0, y = 0, xend = LF1, yend = LF2), 
+               arrow = arrow(length = unit(0.2, "inches")), 
+               color = "#9B4F96", alpha = 0.8) + 
+
+  geom_label_repel(aes(label = Name),
+                   box.padding = 1, 
+                   point.padding = 1,
+                   segment.color = 'grey50',
+  								 max.overlaps = 10,
+                   cex = 2, alpha = 0.9, show.legend = FALSE) +
+
+  geom_point(shape = 21, alpha = 1) +
+
+  scale_color_manual(values = c("#FF6F61", "orange", "#66B032", "#9B4F96"))
+
+
+g
+
+
+```
+
+
+# all plot
+
+```{r, fig.width = 7, fig.asp = 1}
+
+
+cd_2 <- c("Control", "Drought")
+
+for (cd in cd_2) {
+
+print(cd)
+
+
+if (cd == "Drought"){
+	imp.gm<-readRDS(here("out","imp_RF2_d.RDS"))
+
+} else if (cd=="Control"){
+	imp.gm<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+
+
+#imp.gm <- cbind(imp.g, imp.m,imp.met)
+
+imp.gm <- imp.gm[, colSums(imp.gm) >= 0]
+
+res <- svd(imp.gm)
+contr <- res$d / sum(res$d)
+
+
+rownames(res$u) <- rownames(imp.gm)
+rownames(res$v) <- colnames(imp.gm)
+
+ud <- res$u %*% diag(sqrt(res$d))
+vd <- res$v %*% diag(sqrt(res$d))
+
+df.u <- data.frame(ud[, 1:2] , Type = "Phenotype", Name = rownames(ud))
+
+type <- rep("Other", nrow(vd))
+type[substr(rownames(vd), 1,1) == "X"] <- "Metabolome"
+type[substr(rownames(vd), 1,1) == "C"] <- "Genotype"
+type[substr(rownames(vd), 1,1) == "B"] <- "Microbiome"
+df.v <- data.frame(vd[, 1:2], Type = type, Name = rownames(vd))
+df <- data.frame(rbind(df.u, df.v))
+
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+
+head(df)
+
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type)) +
+	
+	ggtitle(paste("RF -", cd)) +
+	
+  theme(
+  	plot.title = element_text(size = 16, hjust = 0.5),
+    legend.text = element_text(size = 12), 
+    legend.title = element_text(size = 0, face = "bold") 
+  ) +
+
+
+  geom_segment(data = df[1:9, ], 
+               aes(x = 0, y = 0, xend = LF1, yend = LF2), 
+               arrow = arrow(length = unit(0.2, "inches")), 
+               color = "black", alpha = 0.8) + 
+
+  geom_label_repel(data = df[df$Type == "Phenotype", ],
+  								 aes(label = Name),
+                   box.padding = 0.5, 
+                   point.padding = 0.5,
+                   segment.color = 'grey50',
+  								 #max.overlaps = 10,
+                   cex = 3.5, 
+  								 alpha = 0.8, 
+  								 show.legend = FALSE) +
+
+  geom_point(shape = 21, alpha = 1) +
+
+   scale_color_manual(values = c("#FF6F61", "orange", "#66B032", "black"))+
+
+  xlab("Latent Factor 1") +
+  ylab("Latent Factor 2") 
+
+print(g)
+}
+
+
+```
+
+## Met
+
+```{}
+res <- svd(imp.met)
+contr <- res$d / sum(res$d)
+contr
+cumsum(contr)
+```
+
+```{}
+rownames(res$u) <- rownames(imp.met)
+rownames(res$v) <- colnames(imp.met)
+
+ud <- res$u %*% diag(sqrt(res$d))
+vd <- res$v %*% diag(sqrt(res$d))
+
+df.u <- data.frame(ud[, 1:2] , Type = "Trait", Name = rownames(ud))
+df.v <- data.frame(vd[, 1:2], Type = "Metabolite", Name = rownames(vd))
+df <- data.frame(rbind(df.u, df.v))
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+head(df)
+```
+
+
+```{}
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type))
+g <- g + geom_point()
+g <- g + geom_label_repel(aes(label = Name),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')
+g
+```
+
+
+
+
+# RF for Met 
+
+prepare datasets
+```{}
+X.list <- vector("list", 3)
+X.list[[1]] <- genome
+X.list[[2]] <- mic.cd
+X.list[[3]] <- cbind(genome, mic.cd)
+names(X.list) <- c("G",
+                "M",
+                "GM")
+```
+
+
+```{}
+Y <- met.cd[,1:253]
+importance.list <- vector("list", ncol(Y))
+names(importance.list) <- colnames(Y)
+for(i in 1:ncol(Y)) {
+  target <-  colnames(Y)[i]
+  print(paste(i, target))
+  y <- Y[, target]
+  
+  importance <- vector("list", length(X.list))
+  names(importance) <- names(X.list)
+  #for(j in 1:length(X.list)) {
+  for(j in length(X.list)) {
+    #print(names(X.list)[j])
+    dat <- data.frame(y, X.list[[j]])
+    model <- ranger(y ~ ., data = dat, importance = "impurity")
+    importance[[j]] <- model$variable.importance
+  }
+  importance.list[[i]] <- importance
+}
+```
+
+Replace the name of traits
+```{}
+names(importance.list) <- colnames(Y)
+```
+
+```{, fig.height=4, fig.asp = 1}
+importance <- NULL
+for(i in 1:length(importance.list)) {
+  importance <- rbind(importance, importance.list[[i]]$GM)
+}
+rownames(importance) <- names(importance.list)
+```
+
+normalize
+```{}
+imp.norm <- diag(1 / apply(importance, 1, sum)) %*% importance
+rownames(imp.norm) <- rownames(importance)
+```
+
+devide
+```{}
+
+imp.g <- imp.norm[, 1:ncol(genome)]
+imp.m <- imp.norm[, (ncol(genome)+1):ncol(imp.norm)]
+
+imp_total<-cbind(imp.g,imp.m)
+saveRDS(imp_total,here("out","imp_RF_met.RDS"))
+
+```
+## Micro and Genome
+
+```{}
+imp.gm <- cbind(imp.g, imp.m)
+imp.gm <- imp.gm[, colSums(imp.gm) >= 0.002]
+res <- svd(imp.gm)
+contr <- res$d / sum(res$d)
+
+
+
+rownames(res$u) <- rownames(imp.gm)
+rownames(res$v) <- colnames(imp.gm)
+
+ud <- res$u %*% diag(sqrt(res$d))
+vd <- res$v %*% diag(sqrt(res$d))
+
+df.u <- data.frame(ud[, 1:2] , Type = "Metabolome", Name = rownames(ud))
+
+type <- rep("Other", nrow(vd))
+type[substr(rownames(vd), 1,1) == "X"] <- "Metabolome"
+type[substr(rownames(vd), 1,1) == "C"] <- "Genotype"
+type[substr(rownames(vd), 1,1) == "B"] <- "Microbiome"
+
+df.v <- data.frame(vd[, 1:2], Type = type, Name = rownames(vd))
+df <- data.frame(rbind(df.u, df.v))
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+head(df)
+
+colnames(df)[1:2] <- colnames(df.u)[1:2] <- colnames(df.v)[1:2] <- paste0("LF", 1:2)
+
+head(df)
+
+g <- ggplot(df, aes(x = LF1, y = LF2, color = Type))
+g <- g + geom_point(shape = 21,alpha=1) 
+g <- g + geom_label_repel(aes(label = Name),
+                  box.padding   = 0.2, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50',
+                  #max.overlaps = 40,
+                  cex=2,alpha=0.9,show.legend= FALSE )
+g<- g + scale_color_manual(values = c( "#FC4E07","#E7B800","#00AFBB"))
+g
+```
+
+Refer to code 32
+
+

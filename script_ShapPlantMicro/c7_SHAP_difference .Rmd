@@ -1,0 +1,521 @@
+---
+title: "shap_network_subset"
+author: "Hayato Yoshioka"
+date: "2025-06-05"
+output: html_document
+---
+
+
+SHAP for one factor (ratio)
+
+```{r}
+require(here)
+source("Script/MyFunctions.R")
+library(bnlearn)
+library(iml)
+require(ranger)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(progress)
+library(here)
+library(tidyverse)
+library(xtable)
+library(scales)
+
+```
+
+```{r}
+
+get_label <- function(name) {
+  if (str_starts(name, "X")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "X")))
+    if (!is.na(idx) && idx <= nrow(mm)) {
+      return(substr(mm[idx, 1], 1, 60))
+    }
+  } else if (str_starts(name, "B")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "B")))
+  if (!is.na(idx) && idx <= length(micro_labels_genus)) {
+    genus <- micro_labels_genus[idx]
+    if (!is.na(genus) && genus != "") {
+      return(substr(genus, 1, 60))
+    } else {
+      return("uncultured")
+    }
+  } else {
+    return("uncultured")
+  }
+  }
+  return(name)  # fallback
+	
+}
+
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+	
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+#mir.cd<-Data$mir
+psc19<-Data$pheno
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(genome)
+dim(mic.cd)
+dim(met.cd)
+
+dim(imp_total)
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+extract_genus <- function(tax_str) {
+  genus_match <- regmatches(tax_str, regexpr("g__[^;]+", tax_str))
+  ifelse(length(genus_match) > 0, gsub("g__", "", genus_match), NA)
+}
+
+micro_labels_genus <- sapply(cm, extract_genus)
+
+mm <- gsub(
+  pattern = "^(DL-|L-\\(-\\)|D-\\(-\\)|L-|D-|(+-)-|(-)-)|(+-)-|D-", 
+  replacement = "", 
+  x = mm
+)
+
+
+mm[182]<-"Marein"
+mm[187]<-"Sodium pantothenate"
+mm[189]<-"Mannose-6-phosphate"
+mm[190]<-"Fructose-6-phosphate"
+mm[197]<-"Mannitol"
+mm[208]<-"Indole-3-carboxyaldehyde"
+mm[53]<-"Ornithine"
+mm[75]<-"GABA"
+mm[38] <-"2,3-Diaminopropionic acid"
+mm[102]<-"Quinic acid"
+
+
+
+```
+
+
+
+
+```{r,fig.height=8,fig.width=10}
+#---------------------------------
+# Main loop
+#---------------------------------
+seed_list <- c(11)
+
+for (s in seed_list) {
+	set.seed(s)
+	# target nodes_> bold
+	target_nodes <- c("X235", "X53", "X45", "X75", "X35", "X98", "X190", "Chr4_22035062")
+	
+	# 1. Load and preprocess
+	imr_drought <- log10(readRDS(here("out", "imr_d4")) + 1) / 2
+	imr_control <- log10(readRDS(here("out", "imr_c4")) + 1) / 2
+	
+	imr_drought[imr_drought < 0] <- 0
+	imr_control[imr_control < 0] <- 0
+	
+	common_rows <- intersect(rownames(imr_drought), rownames(imr_control))
+	common_cols <- intersect(colnames(imr_drought), colnames(imr_control))
+	
+	imr_d <- imr_drought[common_rows, common_cols]
+	imr_c <- imr_control[common_rows, common_cols]
+	
+	diff_matrix <- imr_d - imr_c
+	
+	diff_abs <- abs(diff_matrix)
+	diag(diff_abs) <- 0
+	
+	upper_idx <- which(upper.tri(diff_abs))
+	upper_vals <- diff_abs[upper_idx]
+	
+	
+	top_per<- 0.005
+	
+	all_n<-ncol(diff_matrix) * (nrow(diff_matrix) - 1)/2
+	
+	top_n<- round(all_n * top_per / 100)
+	
+	print(top_n)
+		
+	top_n <- 108
+		
+		
+	sorted_idx <- order(upper_vals, decreasing = TRUE)
+	top_idx <- upper_idx[sorted_idx[1:top_n]]
+	
+	edges_diff <- arrayInd(top_idx, dim(diff_abs))
+	
+	edges_df <- data.frame(
+		from = rownames(diff_matrix)[edges_diff[, 1]],
+		to = colnames(diff_matrix)[edges_diff[, 2]],
+		diff = diff_matrix[edges_diff]
+	)
+	
+	edges_df <- edges_df %>%
+		mutate(pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))) %>%
+		distinct(pair, .keep_all = TRUE) %>%
+		select(-pair) %>%
+		filter(from != to)
+	
+	node_degrees <- table(c(edges_df$from, edges_df$to))
+	edges_df <- edges_df %>%
+		filter(node_degrees[from] > 1 | node_degrees[to] > 1)
+	
+	nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to))) %>%
+		mutate(
+			Type = case_when(
+				grepl("^Ch", name) ~ "Genome",
+				grepl("^B", name) ~ "Microbiome",
+				grepl("^X", name) ~ "Metabolome",
+				grepl("^Dry", name) ~ "Phenotype",
+				TRUE ~ "Other"
+			),
+			label = sapply(name, get_label),
+			is_target = name %in% target_nodes
+		)
+	
+	edges_df <- edges_df %>%
+		mutate(
+			Condition = ifelse(diff > 0, "Drought", "Control")
+		)
+	
+	g_diff <- graph_from_data_frame(edges_df, vertices = nodes, directed = FALSE)
+	
+	V(g_diff)$degree <- degree(g_diff)
+	
+	
+	V(g_diff)$point_size_group <- case_when(
+		V(g_diff)$degree <= 2 ~ "1-2",
+		V(g_diff)$degree <= 5 ~ "3-5",
+		V(g_diff)$degree <= 10 ~ "6-10",
+		TRUE ~ "10+"
+	)
+	V(g_diff)$point_size_group <- factor(
+		V(g_diff)$point_size_group,
+		levels = c("1-2", "3-5", "6-10", "10+")
+	)
+	
+	
+	point_size_values <- c("1-2" = 2, "3-5" = 3, "6-10" = 5, "10+" = 8)
+	
+	# label size
+	V(g_diff)$label <- sapply(V(g_diff)$name, get_label)
+	V(g_diff)$is_target <- V(g_diff)$name %in% target_nodes
+	V(g_diff)$text_size <- ifelse(V(g_diff)$is_target, 3.5, 3)
+	
+	node_colors <- c(
+		"Genome" = "#FF6F61",
+		"Microbiome" = "#66B032",
+		"Metabolome" = "orange",
+		"Phenotype" = "#9B4F96",
+		"Other" = "#B0B0B0"
+	)
+	
+	g <- ggraph(g_diff, layout = "fr") +
+		geom_edge_link(
+			aes(edge_colour = Condition, edge_width = abs(diff)),
+			alpha = 0.7
+		) +
+		scale_edge_width(name = "Strength", range = c(0.5, 3), labels = scales::scientific) +
+		scale_edge_color_manual(values = c("Drought" = "#D7263D", "Control" = "blue")) +
+		
+		geom_node_point(aes(color = Type, size = point_size_group)) +
+		
+		geom_node_text(
+			aes(label = label, fontface = ifelse(is_target, "bold", "plain")),
+			repel = TRUE,
+			size = V(g_diff)$text_size  
+		) +
+		
+		scale_size_manual(
+			name = "Degree",
+			values = point_size_values
+		) +
+		
+		scale_color_manual(values = node_colors) +
+		theme_void()
+	
+	
+	print(g)
+	
+	edge_pairs <- edges_df %>%
+		mutate(
+			target_node = pmin(from, to),
+			partner_node = pmax(from, to)
+		) %>%
+		select(target_node, partner_node, weight = diff) %>%
+		distinct() %>%
+		left_join(nodes[, c("name", "label")], by = c("target_node" = "name")) %>%
+		rename(target_label = label) %>%
+		left_join(nodes[, c("name", "label")], by = c("partner_node" = "name")) %>%
+		rename(partner_label = label) %>%
+		arrange(target_label, partner_label)
+	
+	print(nrow(edge_pairs))
+	
+	degree_table <- data.frame(
+		node = V(g_diff)$name,
+		degree = V(g_diff)$degree
+	) %>% arrange(desc(degree))
+	
+	print(degree_table)
+	
+	edge_pairs_sorted <- edge_pairs %>%
+		arrange(desc(weight)) %>%
+		select(target_node, partner_node, target_label, partner_label, weight)
+	
+	library(xtable)
+	
+	edge_pairs_xtable <- xtable(edge_pairs_sorted, digits = c(0, 0, 0, 0, 0, -1))
+	
+	sanitize_latex <- function(x) {
+		if (is.numeric(type.convert(x, as.is = TRUE))) {
+			return(x)
+		} else {
+			return(gsub("_", "\\\\_", x))
+		}
+	}
+
+	print(edge_pairs_xtable,
+				include.rownames = FALSE,
+				booktabs = TRUE,
+				sanitize.text.function = sanitize_latex)
+}
+```
+
+
+
+```{r}
+
+set.seed(123)
+cd2<- c("Control","Drought")
+
+nodes_list<-list()
+for (cd in cd2) {
+
+if (cd == "Drought"){
+	imr<- readRDS(here("out","imr_d4"))
+} else if (cd=="Control"){
+	imr<- readRDS(here("out","imr_c4"))
+} else {
+	stop()
+}
+
+# Transform to log scale
+imr_l <- log10(imr+1)/2
+
+#hist(imr_l)
+
+# Set negative values to zero
+imr_l[imr_l < 0] <- 0
+
+
+diff_matrix <- imr_l
+
+
+diff_abs <- abs(diff_matrix)
+
+# diag0
+diag(diff_abs) <- 0
+
+upper_idx <- which(upper.tri(diff_abs))
+
+
+upper_vals <- diff_abs[upper_idx]
+
+
+if (cd == "Drought"){
+	top_n <- 108
+} else if (cd=="Control"){
+	top_n <- 111
+} else {
+	stop()
+}
+
+
+
+
+sorted_idx <- order(upper_vals, decreasing = TRUE)
+top_idx <- upper_idx[sorted_idx[1:top_n]]
+
+
+edges_diff <- arrayInd(top_idx, dim(diff_abs))
+
+# check
+head(edges_diff)
+
+
+edges_df <- data.frame(
+  from = rownames(diff_matrix)[edges_diff[, 1]],
+  to = colnames(diff_matrix)[edges_diff[, 2]],
+  diff = diff_matrix[edges_diff]
+)
+
+#hist(diff_matrix,breaks = 100)
+
+# # miniset
+# edges_df <- edges_df %>%
+#   filter(from %in% miniset | to %in% miniset)
+
+edges_df <- edges_df %>%
+  mutate(pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))) %>%
+  distinct(pair, .keep_all = TRUE) %>%
+  select(-pair)
+edges_df <- edges_df %>%
+  filter(from != to)
+
+
+node_degrees <- table(c(edges_df$from, edges_df$to))
+edges_df <- edges_df %>%
+  filter(node_degrees[from] > 1 | node_degrees[to] > 1)
+
+
+nodes <- data.frame(name = unique(c(edges_df$from, edges_df$to))) %>%
+  mutate(
+    type = case_when(
+      grepl("^Ch", name) ~ "Genome",
+      grepl("^B", name) ~ "Microbiome",
+      grepl("^X", name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE ~ "Other"
+    )
+  )
+
+
+edges_df <- edges_df %>%
+  mutate(
+    condition = ifelse(diff > 0, "Drought", "Control")
+  )
+
+
+
+g_diff <- graph_from_data_frame(edges_df, vertices = nodes, directed = FALSE)
+
+
+V(g_diff)$degree <- degree(g_diff)
+V(g_diff)$size <- case_when(
+  V(g_diff)$degree <= 2 ~ 2,
+  V(g_diff)$degree <= 5 ~ 3,
+  V(g_diff)$degree <= 10 ~ 5,
+  TRUE ~ 8
+)
+V(g_diff)$size <- factor(V(g_diff)$size, levels = c(2, 3, 5, 8), labels = c("-2", "3-5", "6-10", "10+"))
+
+
+node_colors <- c("Genome" = "#FF6F61", "Microbiome" = "#66B032",
+                 "Metabolome" = "orange", "Phenotype" = "#9B4F96", "Other" = "#B0B0B0")
+
+
+g <- ggraph(g_diff, layout = "fr") +  
+  geom_edge_link(
+    aes(edge_width = abs(diff)),
+    alpha = 0.7, color = "gray30"
+  ) +
+  scale_edge_width(name =  "strength",range = c(0.5, 3),labels = scales::scientific) +  
+  #scale_edge_color_manual(
+   # values = c("Drought" = "#D7263D",   # vivid red
+  #             "Control" = "blue3")   # vivid blue
+  #) +
+  geom_node_point(aes(color = type, size = size)) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  scale_color_manual(values = node_colors) +
+  scale_size_manual(values = c(2, 3, 5, 8)) +
+  theme_void() +
+  ggtitle(paste0("Difference Network (", cd, ")")) +
+  theme(
+    plot.title = element_text(size = 15, face = "bold", hjust = 0.5)
+  )
+
+
+nodes <- nodes %>%
+  mutate(label = sapply(name, get_label))
+
+# 10. Create correspondence table (sort left side alphabetically)
+
+edge_pairs <- edges_df %>%
+  mutate(
+    target_node = pmin(from, to),  
+    partner_node = pmax(from, to)
+  ) %>%
+  select(target_node, partner_node, weight = diff) %>%
+  distinct()  
+# 11. Write CSV file
+
+# Merge with labels
+edge_pairs <- edge_pairs %>%
+  left_join(nodes[, c("name", "label")], by = c("target_node" = "name")) %>%
+  rename(target_label = label) %>%
+  left_join(nodes[, c("name", "label")], by = c("partner_node" = "name")) %>%
+  rename(partner_label = label)
+
+# Sort before CSV output (by label)
+edge_pairs <- edge_pairs %>%
+  arrange(target_label, partner_label)
+
+#write.csv(edge_pairs, file = paste0("target_node_links_difference_", cd, ".csv"), row.names = FALSE)
+degree_table <- data.frame(
+  node = V(g_diff)$name,
+  degree = V(g_diff)$degree
+) %>% arrange(desc(degree))
+
+print(g)
+
+print(nrow(edge_pairs))
+
+
+edge_pairs_sorted <- edge_pairs %>%
+  arrange(desc(weight)) 
+
+
+edge_pairs_sorted <- edge_pairs_sorted[, c(1, 2, 4, 5, 3)]
+
+
+edge_pairs_xtable <- xtable(edge_pairs_sorted, digits = c(0, 0, 0, 0, 0, -1))
+
+sanitize_latex <- function(x) {
+  if (is.numeric(type.convert(x, as.is = TRUE))) {
+    return(x)  
+  } else {
+    return(gsub("_", "\\\\_", x)) 
+  }
+}
+
+print(edge_pairs_xtable,
+      include.rownames = FALSE,
+      booktabs = TRUE,
+      sanitize.text.function = sanitize_latex)
+}
+```
+
+

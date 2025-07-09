@@ -1,0 +1,36 @@
+# Interpretable Machine Learning on Soybean Multi-Omics Data  
+**Reveals Drought-Driven Shifts of Plant–Microbe Interactions**
+
+This repository contains all scripts and notebooks used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
+
+The pipeline combines prediction models, GWAS, SNP mapping, and SHAP value interpretation to identify key features and interactions driving drought responses in soybean.
+
+---
+
+## 📂 Script
+
+| File | Description |
+|------|--------------|
+| `c1_RF_prediction.Rmd` | Random Forest prediction |
+| `c2_BLUP_prediction.Rmd` | BLUP (Best Linear Unbiased Prediction) |
+| `c3_GWAS.Rmd` | GWAS (Genome-Wide Association Study) analysis |
+| `c4_SNP_Mapping.Rmd` | SNP selection by RF and GWAS |
+| `c5_SHAP_single.Rmd` | SHAP analysis for single feature selection |
+| `c6_SHAP_interaction.Rmd` | SHAP for interaction feature selection |
+| `c7_SHAP_difference.Rmd` | SHAP difference matrix visualization |
+
+---
+
+## Multi-Omics Data (Genome, Microbiome, Metabolome, Phenotype)
+
+| File | Description |
+|------|--------------|
+| `SoyData_Drought2.RDS` | Multi omics data - Drought |
+| `SoyData_Control2.RDS` | Multi omics data - Control |
+
+---
+
+for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and associa-
+tion analysis of 198 soybean accessions in mini-core collections."
+
+
