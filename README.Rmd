@@ -1,9 +1,0 @@
-
-
-Script_network -> codes for blup/RF/baysian network/ shap analysis
-
-
-7_SHAP-onefactor.Rmd is a simple shap case
-
-4_SHAP.Rmd is the interaction search, specific coding with python
-
