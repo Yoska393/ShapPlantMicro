@@ -150,6 +150,63 @@ hist(colSums(imp_control),
 
 ```
 
+```{r}
+
+cd<- c("Control")
+
+# Combine and scale feature sets
+#cd<-"Control" 
+#cd<-"Drought" 
+
+if (cd == "Drought") {
+  X <- X_selected_drought
+  Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+} else if (cd == "Control") {
+  X <- X_selected_control
+  Data <- readRDS(here("data/SoyData_Control2.RDS"))
+} else {
+  stop("Unknown condition")
+}
+
+
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+mm <- gsub(
+  pattern = "^(DL-|L-\\(-\\)|D-\\(-\\)|L-|D-|(+-)-|(-)-)|(+-)-|D-", 
+  replacement = "", 
+  x = mm
+)
+
+
+mm[182]<-"Marein"
+mm[187]<-"Sodium pantothenate"
+mm[189]<-"Mannose-6-phosphate"
+mm[190]<-"Fructose-6-phosphate"
+mm[197]<-"Mannitol"
+mm[208]<-"Indole-3-carboxyaldehyde"
+mm[53]<-"Ornithine"
+mm[75]<-"GABA"
+mm[38] <-"2,3-Diaminopropionic acid"
+mm[102]<-"Quinic acid"
+mm[227]<-"Quercetin 3-Glucoside"
+mm[205]<-"Threonine"
+mm[206]<-"2-Aminobutyric acid"
+mm[188]<- "Glucose-1-phosphate"
+
+micro_labels_genus <- mapply(extract_genus, cm[,1], rownames(cm))
+
+
+```
+
+
 # SHAP net
 ```{r}
 set.seed(123)

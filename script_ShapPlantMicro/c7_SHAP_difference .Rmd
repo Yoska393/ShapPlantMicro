@@ -139,8 +139,8 @@ for (s in seed_list) {
 	target_nodes <- c("X235", "X53", "X45", "X75", "X35", "X98", "X190", "Chr4_22035062")
 	
 	# 1. Load and preprocess
-	imr_drought <- log10(readRDS(here("out", "imr_d4")) + 1) / 2
-	imr_control <- log10(readRDS(here("out", "imr_c4")) + 1) / 2
+	imr_drought <- log10(readRDS(here("out", "imr_d5")) + 1) / 2
+	imr_control <- log10(readRDS(here("out", "imr_c5")) + 1) / 2
 	
 	imr_drought[imr_drought < 0] <- 0
 	imr_control[imr_control < 0] <- 0
@@ -168,7 +168,7 @@ for (s in seed_list) {
 	
 	print(top_n)
 		
-	top_n <- 108
+	top_n <- 156
 		
 		
 	sorted_idx <- order(upper_vals, decreasing = TRUE)
@@ -227,12 +227,12 @@ for (s in seed_list) {
 	)
 	
 	
-	point_size_values <- c("1-2" = 2, "3-5" = 3, "6-10" = 5, "10+" = 8)
+	point_size_values <- c("1-2" = 4, "3-5" = 6, "6-10" = 8, "10+" = 9)
 	
 	# label size
 	V(g_diff)$label <- sapply(V(g_diff)$name, get_label)
 	V(g_diff)$is_target <- V(g_diff)$name %in% target_nodes
-	V(g_diff)$text_size <- ifelse(V(g_diff)$is_target, 3.5, 3)
+	V(g_diff)$text_size <- ifelse(V(g_diff)$is_target, 3.5, 3.2)
 	
 	node_colors <- c(
 		"Genome" = "#FF6F61",
@@ -247,8 +247,9 @@ for (s in seed_list) {
 			aes(edge_colour = Condition, edge_width = abs(diff)),
 			alpha = 0.7
 		) +
-		scale_edge_width(name = "Strength", range = c(0.5, 3), labels = scales::scientific) +
-		scale_edge_color_manual(values = c("Drought" = "#D7263D", "Control" = "blue")) +
+		scale_edge_width(name = "Strength", range = c(1, 4), labels = scales::scientific) +
+		scale_edge_color_manual(values = c("Drought" = "#D7263D",  # 鮮やかな赤
+                                   "Control" = "#1E90FF")) + # 明るいブルー（ドッジブルー）
 		
 		geom_node_point(aes(color = Type, size = point_size_group)) +
 		

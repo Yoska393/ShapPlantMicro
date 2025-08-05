@@ -10,6 +10,7 @@ from 32 and 63
 
 
 ```{r}
+require(here)
 library(MASS)
 library(RAINBOWR)
 library(foreach)

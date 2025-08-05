@@ -19,6 +19,8 @@ All scripts
 | `c5_SHAP_single.Rmd` | SHAP analysis for single feature selection |
 | `c6_SHAP_interaction.Rmd` | SHAP for interaction feature selection |
 | `c7_SHAP_difference.Rmd` | SHAP difference matrix visualization |
+| `c8_hyperparameter_xgboost.Rmd` | Hyperparameter Tuning for XGBoost |
+| `c9_hyperparameter_ranger.Rmd` | Hyperparameter Tuning for ranger |
 
 ---
 

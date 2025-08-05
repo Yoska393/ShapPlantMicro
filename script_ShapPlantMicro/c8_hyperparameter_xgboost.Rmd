@@ -1,0 +1,283 @@
+
+SHAP interaction_hyperparameter
+
+
+```{r}
+require(here)
+require(ranger)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(reticulate)
+library(tidyverse)
+
+extract_genus <- function(tax_str, rowname) {
+  # Extract genus: pattern "g__XXXX"
+  genus_match <- regmatches(tax_str, regexpr("g__[^;]+", tax_str))
+  
+  # Remove "g__" if found
+  if (length(genus_match) > 0) {
+    genus <- gsub("g__", "", genus_match)
+  } else {
+    genus <- NA
+  }
+  
+  # Return rowname if genus is NA, empty, or 'uncultured'
+  if (is.na(genus) || genus == "" || tolower(genus) == "uncultured") {
+    return(rowname)
+  } else {
+    return(genus)
+  }
+}
+
+
+get_X_selected <- function(condition){
+  if (condition == "Drought") {
+    Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+  } else if (condition == "Control") {
+    Data <- readRDS(here("data/SoyData_Control2.RDS"))
+  } else {
+    stop("Unknown condition")
+  }
+
+  genome <- scale(Data$genome)
+  met.cd <- scale(Data$met)
+  mic.cd <- scale(Data$mic)
+  X_all <- cbind(genome, mic.cd, met.cd)
+
+  # imp_common_cols
+  selected_columns <- intersect(imp_common_cols, colnames(X_all))
+  X_selected <- X_all[, selected_columns, drop = FALSE]
+  return(X_selected)
+}
+get_label <- function(name) {
+  if (str_starts(name, "X")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "X")))
+    if (!is.na(idx) && idx %in% 1:nrow(mm)) {
+      out_label <- mm[idx, 1]
+    } else {
+      out_label <- NA
+    }
+  } else if (str_starts(name, "B")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "B")))
+    if (!is.na(idx) && idx %in% 1:length(micro_labels_genus)) {
+      out_label <- micro_labels_genus[idx]
+    } else {
+      out_label <- NA
+    }
+  } else {
+    out_label <- name
+  }
+
+  if (!is.na(out_label)) {
+    out_label <- substr(out_label, 1, 60)
+  }
+
+  return(out_label)
+}
+
+
+```
+
+
+```{r}
+# 1. importance files
+imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
+imp_control <- readRDS(here("out", "imp_RF2_c.RDS"))
+
+
+# 2. threshohold 0.001 for each condition
+imp_d_cols <- colnames(imp_drought)[colSums(imp_drought) >= 0.001]
+imp_c_cols <- colnames(imp_control)[colSums(imp_control) >= 0.001]
+
+# 3.union
+imp_common_cols <- union(imp_d_cols, imp_c_cols)
+
+# 4. X_selected for each condition
+X_selected_drought <- get_X_selected("Drought")
+X_selected_control <- get_X_selected("Control")
+
+# 5. common feature
+common_features <- intersect(colnames(X_selected_drought), colnames(X_selected_control))
+
+X_selected_drought <- X_selected_drought[, common_features, drop = FALSE]
+X_selected_control <- X_selected_control[, common_features, drop = FALSE]
+
+# 結果表示
+cat("Common traits:", length(common_features), "\n")
+cat("X_selected_drought dimension", dim(X_selected_drought), "\n")
+cat("X_selected_control dimension", dim(X_selected_control), "\n")
+```
+
+
+```{r}
+set.seed(123)
+
+# --- Drought 用のデータ読み込みとスケーリング ---
+Data_drought <- readRDS(here("data/SoyData_Drought2.RDS"))
+X_drought <- X_selected_drought
+Y_drought <- scale(Data_drought$pheno)
+
+# --- Control 用のデータ読み込みとスケーリング ---
+Data_control <- readRDS(here("data/SoyData_Control2.RDS"))
+X_control <- X_selected_control
+Y_control <- scale(Data_control$pheno)
+
+# --- 共通の特徴量処理（必要であれば） ---
+# ※genome, mic, metなどの処理が共通で必要な場合は、ここに追加する。
+
+# --- Python へ渡す ---
+assign("X_drought", X_drought, envir = .GlobalEnv)
+assign("Y_drought", Y_drought, envir = .GlobalEnv)
+assign("X_control", X_control, envir = .GlobalEnv)
+assign("Y_control", Y_control, envir = .GlobalEnv)
+
+```
+
+
+```{python,eval=F}
+import shap
+import numpy as np
+import pandas as pd
+import xgboost
+import matplotlib.pyplot as plt
+import random
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error
+from xgboost import XGBRegressor
+import numpy as np
+import random
+
+# 例：両方のデータ
+X_drought = r.X_drought
+Y_drought = r.Y_drought[:, 0]
+
+X_control = r.X_control
+Y_control = r.Y_control[:, 0]
+
+# ハイパーパラメータ空間
+param_grid = {
+    'learning_rate': [0.1, 0.3, 0.5],
+    'n_estimators': [100, 500, 1000],
+    'max_depth': [3, 5, 7]
+}
+
+# グリッド全探索（RandomSearchにしてもOK）
+from itertools import product
+param_combinations = list(product(param_grid['learning_rate'], param_grid['n_estimators'], param_grid['max_depth']))
+
+def evaluate_model_with_std(X, Y, params):
+    kf = KFold(n_splits=5, shuffle=True, random_state=123)
+    scores = []
+    for train_index, test_index in kf.split(X):
+        model = XGBRegressor(
+            learning_rate=params[0],
+            n_estimators=params[1],
+            max_depth=params[2],
+            random_state=123,
+            objective='reg:squarederror'
+        )
+        model.fit(X[train_index], Y[train_index])
+        preds = model.predict(X[test_index])
+        scores.append(mean_squared_error(Y[test_index], preds))
+    return np.mean(scores), np.std(scores)
+
+results = []
+for params in param_combinations:
+    mean_drought, std_drought = evaluate_model_with_std(X_drought, Y_drought, params)
+    mean_control, std_control = evaluate_model_with_std(X_control, Y_control, params)
+    avg_mse = (mean_drought + mean_control) / 2
+
+    results.append({
+        'params': {
+            'learning_rate': params[0],
+            'n_estimators': params[1],
+            'max_depth': params[2]
+        },
+        'mse_drought': mean_drought,
+        'mse_control': mean_control,
+        'std_drought': std_drought,
+        'std_control': std_control,
+        'avg_mse': avg_mse
+    })
+
+```
+
+
+```{python,eval=F}
+df_results = pd.DataFrame([{
+    'learning_rate': r['params']['learning_rate'],
+    'n_estimators': r['params']['n_estimators'],
+    'max_depth': r['params']['max_depth'],
+    'mse_drought': r['mse_drought'],
+    'std_drought': r['std_drought'],
+    'mse_control': r['mse_control'],
+    'std_control': r['std_control'],
+    'avg_mse': r['avg_mse'],
+    # ↓ ここで avg_mse の標準偏差を追加
+    'std_avg_mse': np.sqrt((r['std_drought'] ** 2 + r['std_control'] ** 2) / 4)
+} for r in results])
+
+print(df_results[['avg_mse', 'std_avg_mse']].head())
+df_results.to_csv("out/df_results.csv", index=False)
+```
+
+
+```{python,fig.height=8,fig.width=14}
+df_results = pd.read_csv("out/df_results.csv")
+# Top N parameter sets by lowest average MSE
+top_n = 27
+df_top = df_results.sort_values(by='avg_mse').head(top_n)
+
+# Label formatting
+labels = [f"LR={lr}, NE={ne}, MD={md}"
+          for lr, ne, md in zip(df_top['learning_rate'], df_top['n_estimators'], df_top['max_depth'])]
+
+x = np.arange(len(labels))
+width = 0.25  # narrower bars for triple display
+
+fig, ax = plt.subplots(figsize=(16, 6))
+
+# Bars with error bars
+bars1 = ax.bar(x, df_top['mse_control'], width,
+               yerr=df_top['std_control'], capsize=1, label='Control MSE')
+
+
+bars2 = ax.bar(x - width, df_top['mse_drought'], width,
+               yerr=df_top['std_drought'], capsize=1, label='Drought MSE')
+
+bars3 = ax.bar(x + width, df_top['avg_mse'], width,
+               yerr=df_top['std_avg_mse'], capsize=1,
+               label='Average MSE (Both Conditions)', color='gray')
+
+# Axis & title
+ax.set_ylabel('Mean Squared Error (MSE)')
+ax.set_title('Hyperparameter Sets for $\mathbf{XGBoost}$ (Interaction Analysis)', fontsize=16)
+ax.set_xticks(x)
+
+# Highlight default parameter (LR=0.3, NE=100, MD=5) in bold
+default_label = "LR=0.3, NE=100, MD=5"
+tick_labels = []
+
+for lbl in labels:
+    if lbl == default_label:
+        tick_labels.append(f"$\\bf{{{lbl}}}$")  # bold using LaTeX
+    else:
+        tick_labels.append(lbl)
+
+ax.set_xticklabels(tick_labels, rotation=60, ha='right')
+handles, labels = ax.get_legend_handles_labels()
+order = [1, 0, 2]  # [Drought, Control, Average]
+ax.legend([handles[i] for i in order], [labels[i] for i in order])
+# Styling
+
+ax.grid(False)
+ax.yaxis.grid(True, linestyle='--', alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+```
+
+

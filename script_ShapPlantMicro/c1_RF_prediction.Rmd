@@ -107,6 +107,8 @@ names(X.list) <- c("G",
 
 ```
 
+
+
 ```{r,eval=T}
 set.seed(123)
 Y <- psc19

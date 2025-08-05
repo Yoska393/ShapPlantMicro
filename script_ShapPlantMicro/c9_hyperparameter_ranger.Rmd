@@ -1,0 +1,365 @@
+---
+title: "c9_hyperparameter"
+author: "Hayato Yoshioka"
+date: "2025-08-05"
+output: html_document
+---
+
+```{r, message =F}
+require(BGLR)
+library(dplyr)
+require(here)
+require(ggplot2)
+require(reshape2)
+# require(gridExtra)
+# library(readr)
+library(stringr)
+# library(ggsci)
+library(RAINBOWR)
+# library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+# library(doRNG)
+library(tictoc)
+library(doSNOW)
+library(purrr)
+source("Script/MyFunctions.R")
+
+require(ranger)
+require(ggrepel)
+# require(tidyverse)
+library(rrda)
+
+library(ggrepel)
+library(grid) 
+
+getwd()
+```
+
+seed
+```{r, message =F}
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+```{r}
+
+cd2 = c("Drought","Control")
+
+for (cd in cd2){
+	
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+} else{
+	stop()
+}
+
+
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+mir.cd<-Data$mir
+psc19<-Data$pheno
+miname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(mic.cd)
+dim(met.cd)
+
+
+set.seed(123)
+Y <- psc19
+X <- cbind(genome, mic.cd, met.cd)
+
+# Y <- Y[c(1:20),c(1:5)]
+# X <- X[c(1:20),c(1:20)]
+
+iterations <- ncol(Y)  # number of traits
+
+# Define hyperparameter grids
+mtry.grid <- c(floor(ncol(X) / 6), floor(ncol(X) / 3), floor(ncol(X) / 1.5))
+min.node.size.grid <- c(3, 5, 7)
+num.trees.grid <- c(100, 500, 1000)
+
+param.grid <- expand.grid(
+  mtry = mtry.grid,
+  min.node.size = min.node.size.grid,
+  num.trees = num.trees.grid
+)
+
+# Parallel setup
+cl <- makeCluster(4)
+registerDoSNOW(cl)
+pb <- txtProgressBar(max = iterations, style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress = progress)
+
+tic()
+
+# Run tuning
+all.results <- foreach(i = 1:iterations, .packages = c("ranger", "caret"), .options.snow = opts) %dopar% {
+  y <- as.numeric(Y[, i])
+  dat <- data.frame(y = y, X)
+  n <- nrow(dat)
+
+  set.seed(123 + i)
+  folds <- createFolds(y, k = 10, list = TRUE)
+
+  results <- data.frame()
+
+  for (k in 1:nrow(param.grid)) {
+    mtry.val <- param.grid$mtry[k]
+    node.val <- param.grid$min.node.size[k]
+    trees.val <- param.grid$num.trees[k]
+
+    y.pred <- rep(NA, n)
+
+    for (fold in folds) {
+      train.idx <- setdiff(1:n, fold)
+      test.idx <- fold
+
+      model <- ranger(
+        y ~ ., data = dat[train.idx, ],
+        mtry = mtry.val,
+        min.node.size = node.val,
+        num.trees = trees.val
+      )
+
+      y.pred[test.idx] <- predict(model, data = dat[test.idx, ])$predictions
+    }
+
+    mse.val <- mean((y - y.pred)^2)
+
+    results <- rbind(results, data.frame(
+      trait = colnames(Y)[i],
+      mtry = mtry.val,
+      min.node.size = node.val,
+      num.trees = trees.val,
+      mse = mse.val
+    ))
+  }
+
+  results
+}
+
+close(pb)
+stopCluster(cl)
+toc()
+
+# Combine all results
+all.results.df <- do.call(rbind, all.results)
+
+# Summarize MSE across traits
+summary.stats <- aggregate(mse ~ mtry + min.node.size + num.trees, data = all.results.df, FUN = function(x) {
+  c(mean = mean(x), sd = sd(x))
+})
+
+# Unpack mean and SD
+summary.stats$mse.mean <- summary.stats$mse[, "mean"]
+summary.stats$mse.sd <- summary.stats$mse[, "sd"]
+summary.stats$mse <- NULL
+
+# Save
+saveRDS(all.results.df, here("out", paste0("tune_results_RF_", CD, "pheno_mse.rds")))
+saveRDS(summary.stats, here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
+	
+}
+```
+
+```{r,fig.height=8,fig.width=14}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(here)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(here)
+library(ggtext)  # ← 必要！
+
+# --- デフォルトパラメータ強調用 ---
+default_param <- "mtry=5, node=5, trees=100"
+
+
+# === Load both W4 and W1 ===
+conditions <- c("W4", "W1")
+summary_list <- list()
+
+for (CD in conditions) {
+  stats <- readRDS(here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
+  stats$condition <- CD
+  summary_list[[CD]] <- stats
+}
+
+# Combine both into one dataframe
+df_combined <- bind_rows(summary_list$W4, summary_list$W1)
+
+# === Calculate Average across W4 & W1 ===
+summary_avg <- df_combined %>%
+  group_by(mtry, min.node.size, num.trees) %>%
+  summarise(
+    mse.mean = mean(mse.mean),
+    mse.sd = sqrt((sum(mse.sd^2)) / 4),  # pooled SD (assuming 2 conditions)
+    condition = "Average",
+    .groups = "drop"
+  )
+
+# Combine all into one long table
+df_all <- bind_rows(df_combined, summary_avg)
+
+# Create parameter label
+df_all <- df_all %>%
+  mutate(param_id = paste0("mtry=", mtry, ", node=", min.node.size, ", trees=", num.trees))
+
+# === Order param_id by Average MSE (ascending) ===
+avg_order <- df_all %>%
+  filter(condition == "Average") %>%
+  arrange(mse.mean) %>%
+  pull(param_id)
+
+df_all <- df_all %>%
+  mutate(param_id = factor(param_id, levels = avg_order))
+
+# Optional: highlight default parameter
+default_label <- "mtry=5, node=5, trees=500"
+df_all <- df_all %>%
+  mutate(label_display = ifelse(param_id == default_label, paste0("*", param_id), as.character(param_id)))
+# === Define custom condition labels and order ===
+df_all$condition <- recode(df_all$condition,
+                           "W4" = "Drought MSE",
+                           "W1" = "Control MSE",
+                           "Average" = "Average MSE (Both Conditions)")
+
+# Set condition factor levels to control both legend and bar order
+df_all$condition <- factor(df_all$condition, 
+                           levels = c("Drought MSE", "Control MSE", "Average MSE (Both Conditions)"))
+
+# Updated manual colors for matching labels
+condition_colors <- c(
+  "Drought MSE" = "#ff7f0e",          # orange
+  "Control MSE" = "#1f77b4",          # blue
+  "Average MSE (Both Conditions)" = "#7f7f7f"  # gray
+)
+
+# === Plot ===
+ggplot(df_all, aes(x = label_display, y = mse.mean, fill = condition)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = mse.mean - mse.sd, ymax = mse.mean + mse.sd),
+                position = position_dodge(width = 0.8), width = 0.2, color = "black") +
+  scale_fill_manual(values = condition_colors) +
+  labs(
+    title = "Top Parameter Sets with Error Bars",
+    x = "Parameter Setting",
+    y = "Mean Squared Error (MSE)",
+    fill = "Condition"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+write.csv(df_all, "out/tuning_summary_combined.csv", row.names = FALSE)
+```
+
+```{python,fig.height=8,fig.width=14}
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# === Load Data ===
+df_all = pd.read_csv("out/tuning_summary_combined.csv")
+
+# === Ensure correct order for param_id (based on Average MSE) ===
+avg_order = (
+    df_all[df_all["condition"] == "Average MSE (Both Conditions)"]
+    .sort_values("mse.mean")
+    .param_id
+    .tolist()
+)
+
+df_all["param_id"] = pd.Categorical(df_all["param_id"], categories=avg_order, ordered=True)
+
+# === Highlight default parameter (mtry=5, node=5, trees=100)
+default_label = "mtry=6, node=5, trees=500"
+
+df_all["label_display"] = df_all["param_id"].apply(
+    lambda x: f"$\\bf{{{x}}}$" if x == default_label else x
+)
+
+# === Set colors (same as R)
+condition_colors = {
+    "Drought MSE": "#ff7f0e",   # orange
+    "Control MSE": "#1f77b4",   # blue
+    "Average MSE (Both Conditions)": "#7f7f7f"  # gray
+}
+
+# === Prepare Plot ===
+fig, ax = plt.subplots(figsize=(16, 8))
+
+x = np.arange(len(avg_order))
+width = 0.25
+
+# Split by condition
+conds = ["Drought MSE", "Control MSE", "Average MSE (Both Conditions)"]
+offsets = [-width, 0, width]
+
+for cond, offset in zip(conds, offsets):
+    df_sub = df_all[df_all["condition"] == cond].sort_values("param_id")
+    ax.bar(
+        x + offset,
+        df_sub["mse.mean"],
+        width,
+        yerr=df_sub["mse.sd"],
+        capsize=2,
+        label=cond,
+        color=condition_colors[cond]
+    )
+
+# Format x-ticks
+tick_labels = df_all[df_all["condition"] == "Drought MSE"].sort_values("param_id")["label_display"]
+ax.set_xticks(x)
+ax.set_xticklabels(tick_labels, rotation=60, ha="right")
+
+# Title and labels
+ax.set_title("HyperParameter Sets for $\mathbf{ranger}$", fontsize=16)
+ax.set_ylabel("Mean Squared Error (MSE)")
+
+# Legend at top-left
+ax.legend(
+    loc="upper left",
+    bbox_to_anchor=(0, 1),
+    frameon=False,
+    title=""
+)
+
+# Grid styling
+ax.grid(False)
+ax.yaxis.grid(True, linestyle='--', alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+```
+

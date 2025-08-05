@@ -103,9 +103,9 @@ X_selected_drought <- X_selected_drought[, common_features, drop = FALSE]
 X_selected_control <- X_selected_control[, common_features, drop = FALSE]
 
 # 結果表示
-cat("共通する特徴量の数:", length(common_features), "\n")
-cat("X_selected_drought の次元:", dim(X_selected_drought), "\n")
-cat("X_selected_control の次元:", dim(X_selected_control), "\n")
+cat("Common traits:", length(common_features), "\n")
+cat("X_selected_drought dimension", dim(X_selected_drought), "\n")
+cat("X_selected_control dimension", dim(X_selected_control), "\n")
 ```
 
 
@@ -176,6 +176,8 @@ print(X.shape)
 print(Y.shape)
 
 ```
+
+
 
 
 ```{python,eval=F}
