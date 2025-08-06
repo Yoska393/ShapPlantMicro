@@ -184,6 +184,15 @@ saveRDS(summary.stats, here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds
 }
 ```
 
+
+```{r}
+stats <- readRDS(here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
+
+res <- readRDS(here("out", paste0("tune_results_RF_", CD, "pheno_mse.rds")))
+```
+
+
+
 ```{r,fig.height=8,fig.width=14}
 library(ggplot2)
 library(dplyr)
@@ -197,13 +206,30 @@ library(forcats)
 library(here)
 library(ggtext)  # ← 必要！
 
+set.seed(123)
+Y <- psc19
+X <- cbind(genome, mic.cd, met.cd)
+
+# Y <- Y[c(1:20),c(1:5)]
+# X <- X[c(1:20),c(1:20)]
+
+iterations <- ncol(Y)  # number of traits
+
+# Define hyperparameter grids
+mtry.name <- c("p/6","p/3","p/1.5")
+# min.node.size.grid <- c(3, 5, 7)
+# num.trees.grid <- c(100, 500, 1000)
+
+
 # --- デフォルトパラメータ強調用 ---
-default_param <- "mtry=5, node=5, trees=100"
+default_param <- "mtry=p/3, node=5, trees=100"
 
 
 # === Load both W4 and W1 ===
 conditions <- c("W4", "W1")
 summary_list <- list()
+
+
 
 for (CD in conditions) {
   stats <- readRDS(here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
@@ -211,39 +237,51 @@ for (CD in conditions) {
   summary_list[[CD]] <- stats
 }
 
-# Combine both into one dataframe
-df_combined <- bind_rows(summary_list$W4, summary_list$W1)
+for (CD in c("W1", "W4")) {
+  summary_list[[CD]] <- summary_list[[CD]] %>%
+   # arrange(mtry, min.node.size, num.trees) %>%  # 念のため並びを固定
+    mutate(
+      mtry = case_when(
+        (row_number() - 1) %% 3 + 1 == 1 ~ "p/6",
+        (row_number() - 1) %% 3 + 1 == 2 ~ "p/3",
+        (row_number() - 1) %% 3 + 1 == 3 ~ "p/2"
+      )
+    )
+}
+# === STEP 1: 結合
+df_combined <- bind_rows(summary_list$W1, summary_list$W4)
 
-# === Calculate Average across W4 & W1 ===
+# === STEP 2: 平均（27通りあるはず）
 summary_avg <- df_combined %>%
   group_by(mtry, min.node.size, num.trees) %>%
   summarise(
     mse.mean = mean(mse.mean),
-    mse.sd = sqrt((sum(mse.sd^2)) / 4),  # pooled SD (assuming 2 conditions)
-    condition = "Average",
+    mse.sd = sqrt(mean(mse.sd^2)),
+    condition = "Average MSE (Both Conditions)",
     .groups = "drop"
   )
 
-# Combine all into one long table
+# === STEP 3: 結合
 df_all <- bind_rows(df_combined, summary_avg)
 
-# Create parameter label
+# === STEP 4: param_id列の作成（x軸ラベルに使う）
 df_all <- df_all %>%
   mutate(param_id = paste0("mtry=", mtry, ", node=", min.node.size, ", trees=", num.trees))
 
-# === Order param_id by Average MSE (ascending) ===
+# === STEP 5: param_id の並び順を平均MSEに基づいて設定
 avg_order <- df_all %>%
-  filter(condition == "Average") %>%
+  filter(condition == "Average MSE (Both Conditions)") %>%
   arrange(mse.mean) %>%
   pull(param_id)
 
 df_all <- df_all %>%
   mutate(param_id = factor(param_id, levels = avg_order))
 
-# Optional: highlight default parameter
-default_label <- "mtry=5, node=5, trees=500"
+# === STEP 6: デフォルトパラメータの表示用ラベル（*付き）
+default_param <- "mtry=p/3, node=5, trees=100"
 df_all <- df_all %>%
-  mutate(label_display = ifelse(param_id == default_label, paste0("*", param_id), as.character(param_id)))
+  mutate(label_display = ifelse(param_id == default_param, paste0("*", param_id), as.character(param_id)))
+
 # === Define custom condition labels and order ===
 df_all$condition <- recode(df_all$condition,
                            "W4" = "Drought MSE",
@@ -302,7 +340,7 @@ avg_order = (
 df_all["param_id"] = pd.Categorical(df_all["param_id"], categories=avg_order, ordered=True)
 
 # === Highlight default parameter (mtry=5, node=5, trees=100)
-default_label = "mtry=6, node=5, trees=500"
+default_label = "mtry=p/3, node=5, trees=500"
 
 df_all["label_display"] = df_all["param_id"].apply(
     lambda x: f"$\\bf{{{x}}}$" if x == default_label else x
@@ -353,7 +391,7 @@ ax.legend(
     frameon=False,
     title=""
 )
-
+ax.set_ylim(top=1.1)
 # Grid styling
 ax.grid(False)
 ax.yaxis.grid(True, linestyle='--', alpha=0.3)

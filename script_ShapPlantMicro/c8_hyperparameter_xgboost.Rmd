@@ -158,8 +158,8 @@ Y_control = r.Y_control[:, 0]
 # ハイパーパラメータ空間
 param_grid = {
     'learning_rate': [0.1, 0.3, 0.5],
-    'n_estimators': [100, 500, 1000],
-    'max_depth': [3, 5, 7]
+    'n_estimators': [50, 100, 500],
+    'max_depth': [3, 6, 9]
 }
 
 # グリッド全探索（RandomSearchにしてもOK）
@@ -219,12 +219,23 @@ df_results = pd.DataFrame([{
 } for r in results])
 
 print(df_results[['avg_mse', 'std_avg_mse']].head())
-df_results.to_csv("out/df_results.csv", index=False)
+df_results.to_csv("out/df_results254.csv", index=False)
 ```
 
 
 ```{python,fig.height=8,fig.width=14}
-df_results = pd.read_csv("out/df_results.csv")
+import shap
+import numpy as np
+import pandas as pd
+import xgboost
+import matplotlib.pyplot as plt
+import random
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error
+from xgboost import XGBRegressor
+import numpy as np
+import random
+df_results = pd.read_csv("out/df_results254.csv")
 # Top N parameter sets by lowest average MSE
 top_n = 27
 df_top = df_results.sort_values(by='avg_mse').head(top_n)
@@ -256,7 +267,7 @@ ax.set_title('Hyperparameter Sets for $\mathbf{XGBoost}$ (Interaction Analysis)'
 ax.set_xticks(x)
 
 # Highlight default parameter (LR=0.3, NE=100, MD=5) in bold
-default_label = "LR=0.3, NE=100, MD=5"
+default_label = "LR=0.3, NE=100, MD=6"
 tick_labels = []
 
 for lbl in labels:

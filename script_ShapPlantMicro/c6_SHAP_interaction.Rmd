@@ -113,7 +113,7 @@ cat("X_selected_control dimension", dim(X_selected_control), "\n")
 set.seed(123)
 
 # Combine and scale feature sets
-cd<-"Drought" 
+cd<-"Control" 
 #cd<-"Drought" 
 
 if (cd == "Drought") {
@@ -186,7 +186,7 @@ seed =123
 np.random.seed(seed)
 random.seed(seed)
 
-model = xgboost.XGBRegressor(n_estimators=100, random_state=seed)
+model = xgboost.XGBRegressor(random_state=seed,n_estimators=100,max_depth=6,learning_rate=0.3)
 model.fit(X, Y)
 
 # Calculate SHAP
@@ -205,12 +205,12 @@ interaction_matrix
 # If interaction_matrix is a DataFrame, flatten all values and draw a histogram
 interaction_matrix_values = interaction_matrix.values.flatten()
 
-# Plot histogram
-plt.hist(interaction_matrix_values, bins=30, edgecolor='black')
-plt.title('Histogram of SHAP Interaction Values')
-plt.xlabel('SHAP Interaction Value')
-plt.ylabel('Frequency')
-plt.show()
+# # Plot histogram
+# plt.hist(interaction_matrix_values, bins=30, edgecolor='black')
+# plt.title('Histogram of SHAP Interaction Values')
+# plt.xlabel('SHAP Interaction Value')
+# plt.ylabel('Frequency')
+# plt.show()
 
 import reticulate
 

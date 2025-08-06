@@ -111,10 +111,17 @@ mm <- gsub(
 
 mm[182]<-"Marein"
 mm[187]<-"Sodium pantothenate"
+mm[179]<-"Cyanidin-3,5-di-O-glucoside chloride"
+mm[183]<-"alpha-D-Glucose-1-phosphate"
 mm[189]<-"Mannose-6-phosphate"
 mm[190]<-"Fructose-6-phosphate"
+mm[192]<-"Zeatin"
 mm[197]<-"Mannitol"
+mm[203]<-"Alanine_Sarcosine"
+mm[206]<-"Aminobutyric acid"
 mm[208]<-"Indole-3-carboxyaldehyde"
+mm[241]<-"Synephrine"
+mm[242]<-"Epigallocatechin"
 mm[53]<-"Ornithine"
 mm[75]<-"GABA"
 mm[38] <-"2,3-Diaminopropionic acid"
@@ -131,16 +138,18 @@ mm[102]<-"Quinic acid"
 #---------------------------------
 # Main loop
 #---------------------------------
+#seed_list <- c(12)
 seed_list <- c(11)
 
 for (s in seed_list) {
 	set.seed(s)
 	# target nodes_> bold
+	#target_nodes <- c("X235", "X53", "X75", "X35", "X190","B383","B179","B85", "Chr4_22035062","Chr6_15056895")
 	target_nodes <- c("X235", "X53", "X45", "X75", "X35", "X98", "X190", "Chr4_22035062")
 	
 	# 1. Load and preprocess
-	imr_drought <- log10(readRDS(here("out", "imr_d5")) + 1) / 2
-	imr_control <- log10(readRDS(here("out", "imr_c5")) + 1) / 2
+	imr_drought <- log10(readRDS(here("out", "imr_d4")) + 1) / 2
+	imr_control <- log10(readRDS(here("out", "imr_c4")) + 1) / 2
 	
 	imr_drought[imr_drought < 0] <- 0
 	imr_control[imr_control < 0] <- 0
@@ -168,7 +177,7 @@ for (s in seed_list) {
 	
 	print(top_n)
 		
-	top_n <- 156
+	top_n <- 108
 		
 		
 	sorted_idx <- order(upper_vals, decreasing = TRUE)
@@ -209,6 +218,7 @@ for (s in seed_list) {
 		mutate(
 			Condition = ifelse(diff > 0, "Drought", "Control")
 		)
+	edges_df<-edges_df[1:100,]
 	
 	g_diff <- graph_from_data_frame(edges_df, vertices = nodes, directed = FALSE)
 	
@@ -247,7 +257,7 @@ for (s in seed_list) {
 			aes(edge_colour = Condition, edge_width = abs(diff)),
 			alpha = 0.7
 		) +
-		scale_edge_width(name = "Strength", range = c(1, 4), labels = scales::scientific) +
+		scale_edge_width(name = "Strength", range = c(1.5, 3), labels = scales::scientific) +
 		scale_edge_color_manual(values = c("Drought" = "#D7263D",  # 鮮やかな赤
                                    "Control" = "#1E90FF")) + # 明るいブルー（ドッジブルー）
 		
@@ -284,6 +294,8 @@ for (s in seed_list) {
 		arrange(target_label, partner_label)
 	
 	print(nrow(edge_pairs))
+}
+
 	
 	degree_table <- data.frame(
 		node = V(g_diff)$name,
@@ -312,7 +324,8 @@ for (s in seed_list) {
 				include.rownames = FALSE,
 				booktabs = TRUE,
 				sanitize.text.function = sanitize_latex)
-}
+
+print(dim(edge_pairs_sorted))
 ```
 
 

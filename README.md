@@ -7,6 +7,10 @@ This repository contains all scripts and data used for the analysis in **“Inte
 
 ---
 
+<img src="abstract.png" width="1000">
+
+---
+
 ## 📂 script_ShapPlantMicro
 All scripts 
 
