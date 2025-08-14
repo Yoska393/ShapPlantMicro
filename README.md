@@ -15,7 +15,7 @@ All scripts
 
 | File | Description |
 |------|--------------|
-| `c0_RF_prediction.Rmd` | Random Forest marker evaluation |
+| `c0_RF-markers.Rmd` | Random Forest marker evaluation |
 | `c1_RF_prediction.Rmd` | Random Forest prediction |
 | `c2_BLUP_prediction.Rmd` | BLUP (Best Linear Unbiased Prediction) |
 | `c3_GWAS.Rmd` | GWAS (Genome-Wide Association Study) analysis |
