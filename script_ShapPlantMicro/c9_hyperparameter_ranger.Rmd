@@ -105,22 +105,26 @@ param.grid <- expand.grid(
   num.trees = num.trees.grid
 )
 
-# Parallel setup
-cl <- makeCluster(4)
+
+# Start parallel cluster
+cl <- makeCluster(10)
 registerDoSNOW(cl)
+
+# Progress bar
 pb <- txtProgressBar(max = iterations, style = 3)
 progress <- function(n) setTxtProgressBar(pb, n)
 opts <- list(progress = progress)
 
+# Start timer
 tic()
 
-# Run tuning
+# Run tuning with foreach
 all.results <- foreach(i = 1:iterations, .packages = c("ranger", "caret"), .options.snow = opts) %dopar% {
   y <- as.numeric(Y[, i])
   dat <- data.frame(y = y, X)
   n <- nrow(dat)
 
-  set.seed(123 + i)
+  set.seed(123)
   folds <- createFolds(y, k = 10, list = TRUE)
 
   results <- data.frame()
@@ -130,11 +134,11 @@ all.results <- foreach(i = 1:iterations, .packages = c("ranger", "caret"), .opti
     node.val <- param.grid$min.node.size[k]
     trees.val <- param.grid$num.trees[k]
 
-    y.pred <- rep(NA, n)
+    fold.mse <- numeric(length(folds))
 
-    for (fold in folds) {
-      train.idx <- setdiff(1:n, fold)
-      test.idx <- fold
+    for (j in seq_along(folds)) {
+      test.idx <- folds[[j]]
+      train.idx <- setdiff(seq_len(n), test.idx)
 
       model <- ranger(
         y ~ ., data = dat[train.idx, ],
@@ -143,44 +147,49 @@ all.results <- foreach(i = 1:iterations, .packages = c("ranger", "caret"), .opti
         num.trees = trees.val
       )
 
-      y.pred[test.idx] <- predict(model, data = dat[test.idx, ])$predictions
+      preds <- predict(model, data = dat[test.idx, ])$predictions
+      fold.mse[j] <- mean((y[test.idx] - preds)^2)
     }
 
-    mse.val <- mean((y - y.pred)^2)
-
+    # Store raw fold-level MSEs (as list column)
     results <- rbind(results, data.frame(
       trait = colnames(Y)[i],
       mtry = mtry.val,
       min.node.size = node.val,
       num.trees = trees.val,
-      mse = mse.val
+      fold.mse = I(list(fold.mse))  # store as list-column
     ))
   }
 
   results
 }
 
+# Stop parallel processing
 close(pb)
 stopCluster(cl)
 toc()
 
-# Combine all results
+# Combine all trait results
 all.results.df <- do.call(rbind, all.results)
 
-# Summarize MSE across traits
-summary.stats <- aggregate(mse ~ mtry + min.node.size + num.trees, data = all.results.df, FUN = function(x) {
-  c(mean = mean(x), sd = sd(x))
-})
+# Save full fold-level results
+saveRDS(all.results.df, here("out", paste0("tune_folds_RF_", CD, "pheno_mse.rds")))
 
-# Unpack mean and SD
-summary.stats$mse.mean <- summary.stats$mse[, "mean"]
-summary.stats$mse.sd <- summary.stats$mse[, "sd"]
-summary.stats$mse <- NULL
+# === Aggregate properly: compute global mean and SD over all folds across traits ===
+summary.stats <- all.results.df %>%
+  group_by(mtry, min.node.size, num.trees) %>%
+  summarise(
+    all_fold_mse = list(unlist(fold.mse)), .groups = "drop"
+  ) %>%
+  mutate(
+    mse.mean = sapply(all_fold_mse, mean),
+    mse.sd   = sapply(all_fold_mse, sd)
+  ) %>%
+  select(-all_fold_mse)
 
-# Save
-saveRDS(all.results.df, here("out", paste0("tune_results_RF_", CD, "pheno_mse.rds")))
+# Save summary stats
 saveRDS(summary.stats, here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
-	
+
 }
 ```
 
@@ -188,7 +197,33 @@ saveRDS(summary.stats, here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds
 ```{r}
 stats <- readRDS(here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
 
-res <- readRDS(here("out", paste0("tune_results_RF_", CD, "pheno_mse.rds")))
+
+
+for (CD in c("W1","W4")){
+	
+
+results <- readRDS(here("out", paste0("tune_folds_RF_", CD, "pheno_mse.rds")))
+
+
+
+results<-results[1:27,]
+
+# === Aggregate properly: compute global mean and SD over all folds across traits ===
+summary.stats <- results %>%
+  group_by(mtry, min.node.size, num.trees) %>%
+  summarise(
+    all_fold_mse = list(unlist(fold.mse)), .groups = "drop"
+  ) %>%
+  mutate(
+    mse.mean = sapply(all_fold_mse, mean),
+    mse.sd   = sapply(all_fold_mse, sd)
+  ) %>%
+  select(-all_fold_mse)
+
+
+
+saveRDS(summary.stats, here("out", paste0("tune_summary_RF_", CD, "pheno_mse_dryweight.rds")))
+}
 ```
 
 
@@ -207,13 +242,13 @@ library(here)
 library(ggtext)  # ← 必要！
 
 set.seed(123)
-Y <- psc19
-X <- cbind(genome, mic.cd, met.cd)
+#Y <- psc19
+#X <- cbind(genome, mic.cd, met.cd)
 
 # Y <- Y[c(1:20),c(1:5)]
 # X <- X[c(1:20),c(1:20)]
 
-iterations <- ncol(Y)  # number of traits
+#iterations <- ncol(Y)  # number of traits
 
 # Define hyperparameter grids
 mtry.name <- c("p/6","p/3","p/1.5")
@@ -233,21 +268,15 @@ summary_list <- list()
 
 for (CD in conditions) {
   stats <- readRDS(here("out", paste0("tune_summary_RF_", CD, "pheno_mse.rds")))
+	stats$mtry[1:9]<-mtry.name[1]
+	stats$mtry[10:18]<-mtry.name[2]
+	stats$mtry[19:27]<-mtry.name[3]
+   
   stats$condition <- CD
   summary_list[[CD]] <- stats
 }
 
-for (CD in c("W1", "W4")) {
-  summary_list[[CD]] <- summary_list[[CD]] %>%
-   # arrange(mtry, min.node.size, num.trees) %>%  # 念のため並びを固定
-    mutate(
-      mtry = case_when(
-        (row_number() - 1) %% 3 + 1 == 1 ~ "p/6",
-        (row_number() - 1) %% 3 + 1 == 2 ~ "p/3",
-        (row_number() - 1) %% 3 + 1 == 3 ~ "p/2"
-      )
-    )
-}
+
 # === STEP 1: 結合
 df_combined <- bind_rows(summary_list$W1, summary_list$W4)
 
@@ -391,7 +420,7 @@ ax.legend(
     frameon=False,
     title=""
 )
-ax.set_ylim(top=1.1)
+ax.set_ylim(top=1.3)
 # Grid styling
 ax.grid(False)
 ax.yaxis.grid(True, linestyle='--', alpha=0.3)

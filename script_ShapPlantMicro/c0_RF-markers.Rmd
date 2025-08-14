@@ -1,0 +1,249 @@
+
+from 58
+
+```{r, message =F}
+require(BGLR)
+library(dplyr)
+require(here)
+require(ggplot2)
+require(reshape2)
+# require(gridExtra)
+# library(readr)
+library(stringr)
+# library(ggsci)
+library(RAINBOWR)
+# library(lubridate)
+library(foreach)
+library(future)
+library(doFuture)
+# library(doRNG)
+library(tictoc)
+library(doSNOW)
+library(purrr)
+source("Script/MyFunctions.R")
+
+require(ranger)
+require(ggrepel)
+# require(tidyverse)
+library(rrda)
+
+library(ggrepel)
+library(grid) 
+library(caret)
+getwd()
+```
+
+seed
+```{r, message =F}
+seedIndCsv <-  here("out","seedInd.csv")
+if (file.exists(seedIndCsv)) {
+  seedInd <- read.csv(seedIndCsv, row.names = 1, header = T)
+  seedInd <- c(as.matrix(seedInd))
+} else {
+  seedInd <- sample(1:500, 10, replace = F)
+  write.csv(x = seedInd, file =  here("out","seedInd.csv"))
+}
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+} else{
+	stop()
+}
+
+psc19<-Data$pheno
+var.id <- rownames(psc19)
+
+
+bm34k<- readRDS(here("data/genome","genoMarker_LD0.3_SNP34632.RDS"))
+bm16k<- readRDS(here("data/genome","genoMarker_LD0.1_SNP16419.RDS"))
+bm10k<- readRDS(here("data/genome","genoMarker_LD0.01_SNP10143.RDS"))
+bm3k<- readRDS(here("data/genome","genoMarker_LD0.001_SNP3078.RDS"))
+
+
+bm34k<- scale(bm34k[var.id,])
+bm16k<- scale(bm16k[var.id,])
+bm10k<- scale(bm10k[var.id,])
+bm3k<-  scale(bm3k[var.id,])
+
+
+cd<-Data$cd
+
+genome<- 
+
+psc19 <- scale(psc19)
+```
+
+# RF for pheno
+
+prepare datasets
+```{r}
+X.list <- vector("list", 4)
+X.list[[1]] <- bm3k
+X.list[[2]] <- bm10k
+X.list[[3]] <- bm16k
+X.list[[4]] <- bm34k
+
+
+names(X.list) <- c("3k","10k","16k","34k")
+
+
+
+```
+
+
+10 fold -> cor validate for each iteration
+save vector of cor for each input -> matrix
+
+list for each ncol(Y)
+
+```{r,eval=T}
+
+
+set.seed(123)
+
+# --- Input ---
+# Y: response matrix/data frame (columns = traits)
+Y <- psc19
+
+# X.list: a named list of predictor datasets with the SAME row order as Y
+# X.list <- list("34k" = bm34k, "16k" = bm16k, "10k" = bm10k, "3k" = bm3k)
+
+# --- Containers for outputs ---
+# cor.list: for each trait, store a (dataset x fold) matrix of correlations
+cor.list <- vector("list", ncol(Y))
+
+# Use column names from Y for safety (avoids mismatches if the trait list changes)
+names(cor.list) <- if (!is.null(colnames(Y))) colnames(Y) else paste0("Trait", seq_len(ncol(Y)))
+
+# summary_list: for each trait, a data.frame of per-dataset mean/sd correlation across folds
+summary_list <- vector("list", ncol(Y))
+
+# --- Make a single 10-fold split ONCE and reuse it for all traits/datasets ---
+# We create folds on row indices; later we’ll remap after dropping NAs.
+folds_master <- createFolds(seq_len(nrow(Y)), k = 10, list = TRUE, returnTrain = FALSE)
+
+# --- Main loop over traits ---
+for (i in seq_len(ncol(Y))) {
+  y_all <- Y[, i]
+
+  # Prepare (dataset x fold) matrix to hold correlations
+  cor.mat <- matrix(
+    NA_real_,
+    nrow = length(X.list),
+    ncol = 10,
+    dimnames = list(names(X.list), paste0("Fold", 1:10))
+  )
+
+  # Loop over each predictor dataset
+  for (j in seq_along(X.list)) {
+    X_all <- X.list[[j]]
+
+    # --- Align missingness between y and X ---
+    # Keep only rows where BOTH y and the entire predictor row are complete
+    keep <- complete.cases(y_all, X_all)
+    y <- y_all[keep]
+    X <- X_all[keep, , drop = FALSE]
+
+    # Remap the master folds to the kept rows
+    # map_idx = original row numbers that survived the NA filtering
+    map_idx <- which(keep)
+    folds <- lapply(folds_master, function(idx) {
+      # Intersect each master fold with kept rows, then convert to new indices (1..nrow(X))
+      kept <- intersect(idx, map_idx)
+      match(kept, map_idx)
+    })
+
+    n <- nrow(X)
+    if (n == 0L) {
+      # No data left for this dataset/trait; skip all folds
+      next
+    }
+
+    # Cross-validated training/prediction
+    for (f in seq_along(folds)) {
+      test.idx  <- folds[[f]]
+      if (length(test.idx) == 0L) {        # If this fold ended up empty after NA filtering
+        cor.mat[j, f] <- NA_real_
+        next
+      }
+      train.idx <- setdiff(seq_len(n), test.idx)
+
+      # Fit a random forest with ranger (no importance computation for speed)
+      # You can tune mtry/min.node.size if desired.
+      fit <- ranger(
+        x = X[train.idx, , drop = FALSE],
+        y = y[train.idx],
+        num.trees = 500
+        # num.threads = 1L  # Increase for parallelization
+      )
+
+      # Predict on the held-out fold and compute correlation
+      pred <- predict(fit, data = X[test.idx, , drop = FALSE])$predictions
+      cor.mat[j, f] <- suppressWarnings(cor(pred, y[test.idx], use = "complete.obs"))
+    }
+  }
+
+  # Store the fold-wise correlations for this trait
+  cor.list[[i]] <- cor.mat
+
+  # Summarize per dataset: mean and SD across folds (ignoring NA folds)
+  summary_list[[i]] <- data.frame(
+    Trait   = names(cor.list)[i],
+    Dataset = rownames(cor.mat),
+    MeanCor = rowMeans(cor.mat, na.rm = TRUE),
+    SdCor   = apply(cor.mat, 1, sd, na.rm = TRUE),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+cor.summary <- do.call(rbind, summary_list)
+
+
+cor.list[[1]]
+
+
+cor.summary
+
+reshape2::dcast(cor.summary, Trait ~ Dataset, value.var = "MeanCor")
+
+
+```
+
+
+```{r,fig.height=6,fig.width=8}
+library(ggplot2)
+library(dplyr)
+
+
+cor.summary <- bind_rows(summary_list)
+
+cor.summary$Dataset <- factor(cor.summary$Dataset,
+                              levels = c("34k", "16k", "10k", "3k"))
+
+
+ggplot(cor.summary, aes(x = Dataset, y = MeanCor, fill = Dataset)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = MeanCor - SdCor, ymax = MeanCor + SdCor),
+                width = 0.2, position = position_dodge(width = 0.8)) +
+  facet_wrap(~ Trait, scales = "free_y") +
+  labs(title = "RF phenotypic prediction 10-fold CV",
+        fill = "SNPs",
+  		 x="",
+  		 
+       y = "Mean Correlation") +
+  theme_minimal(base_size = 14) +
+   theme(
+    axis.text.x =  element_blank(),
+    axis.title.x = element_blank() 
+  )
+```
+

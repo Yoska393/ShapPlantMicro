@@ -1,5 +1,4 @@
-# Interpretable Machine Learning on Soybean Multi-Omics Data  
-**Reveals Drought-Driven Shifts of Plant–Microbe Interactions**
+# Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions
 
 This repository contains all scripts and data used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
 
@@ -16,6 +15,7 @@ All scripts
 
 | File | Description |
 |------|--------------|
+| `c0_RF_prediction.Rmd` | Random Forest marker evaluation |
 | `c1_RF_prediction.Rmd` | Random Forest prediction |
 | `c2_BLUP_prediction.Rmd` | BLUP (Best Linear Unbiased Prediction) |
 | `c3_GWAS.Rmd` | GWAS (Genome-Wide Association Study) analysis |
