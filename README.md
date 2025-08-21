@@ -1,7 +1,9 @@
 # Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions
 
+
 This repository contains all scripts and data used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
 
+doi: https://doi.org/10.1101/2025.08.13.670005
 
 
 ---
