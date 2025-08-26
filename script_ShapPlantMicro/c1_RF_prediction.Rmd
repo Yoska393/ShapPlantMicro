@@ -52,7 +52,7 @@ if (file.exists(seedIndCsv)) {
 ```
 
 ```{r}
-cd = "Drought"
+cd = "Control"
 
 if (cd == "Drought"){
 	CD<-"W4"
@@ -82,6 +82,13 @@ psc19 <- scale(psc19)
 
 dim(mic.cd)
 dim(met.cd)
+
+
+#miname_df <- data.frame(miname = miname)
+#write.csv(miname_df, file = "miname.csv", row.names = FALSE)
+
+#metname_df <- data.frame(metname = metname)
+#write.csv(metname_df, file = "metname.csv", row.names = FALSE)
 
 ```
 
@@ -152,6 +159,7 @@ normalize (non)
 imp.norm<-importance
 imp.norm <- diag(1 / apply(importance, 1, sum)) %*% importance
 
+#imp.norm<- t(scale(t(importance)))
 rownames(imp.norm) <- rownames(importance)
 ```
 
@@ -206,7 +214,7 @@ g
 
 ```
 
-```{}
+```{r}
 imp_total<-cbind(imp.g,imp.m, imp.met )
 
 
@@ -219,7 +227,7 @@ if (cd == "Drought"){
 
 ```
 
-```{r, fig.width = 7, fig.asp = 1}
+```{, fig.width = 7, fig.asp = 1}
 
 df <- data.frame(rbind(df.u, df.v))
 

@@ -1,5 +1,5 @@
 ---
-title: "11_snps_map"
+title: "c4_snps_map"
 author: "Hayato Yoshioka"
 date: "2025-06-06"
 output: html_document

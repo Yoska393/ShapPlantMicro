@@ -20,7 +20,7 @@ require(reshape2)
 
 
 ```{r}
-cd = "Control"
+cd = "Drought"
 
 if (cd == "Drought"){
 	CD<-"W4"
@@ -127,8 +127,10 @@ barplot(coef)
 #coef<-coef[-c(5,6,7),]
 barplot(coef[1,])
 imp.norm <- diag(1 / apply(coef, 1, sum)) %*% coef
-#imp.norm<-scale(coef)
-imp.norm<-coef
+
+imp.norm<-t(scale(t(coef)))
+
+#imp.norm<-coef
 rownames(imp.norm) <- rownames(coef)
 
 imp.g <- imp.norm[, 1:ncol(genome)]
@@ -199,8 +201,8 @@ g
 
 ```{r,eval=F}
 imp_all<-cbind(imp.g, imp.m, imp.met)
-saveRDS(imp_all,here("out","imp_BLUP.RDS"))
-#saveRDS(imp_all,here("out","imp_BLUP_control.RDS")) # for control
+saveRDS(imp_all,here("out","imp_BLUP_2.RDS"))
+#saveRDS(imp_all,here("out","imp_BLUP_control_2.RDS")) # for control
 ```
 
 
@@ -213,9 +215,9 @@ cd_2 <- c("Control", "Drought")
 for (cd in cd_2) {
 	
 if (cd == "Control") {
-    imp_all <- readRDS(here("out", "imp_BLUP_control.RDS"))
+    imp_all <- readRDS(here("out", "imp_BLUP_control_2.RDS"))
   } else if (cd == "Drought") {
-    imp_all <- readRDS(here("out", "imp_BLUP.RDS"))
+    imp_all <- readRDS(here("out", "imp_BLUP_2.RDS"))
   } else {
     stop("Unknown condition.")
   }

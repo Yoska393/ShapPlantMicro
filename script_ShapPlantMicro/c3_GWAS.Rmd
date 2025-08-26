@@ -115,6 +115,53 @@ head(bm@snps$id)[1:5]
 
 ```
 
+```{r}
+
+Soy_pheno <- pheno_c
+
+trait.name <- "DryWeight_Leaves_g"
+# y <- Soy_pheno[, trait.name]
+y <- Soy_pheno[, trait.name]
+names(y) <- rownames(Soy_pheno)
+
+bm.maf <- select.snps(x = bm, condition = maf>=0.05)
+bm.maf@ped$pheno <- y[bm@ped$id]
+
+bm.NonNA <- select.inds(x = bm.maf, condition = !is.na(pheno))
+bm.NonNA.maf <- select.snps(x = bm.NonNA, condition = maf>=0.05)
+
+```
+
+
+```{r}
+set.seed(123)
+
+grm <- GRM(bm.maf)
+
+dim(grm)
+
+eigen.grm <- eigen(grm)
+#PCA
+pc_scores <- eigen.grm$vectors[, 1:10]
+rownames(pc_scores) <- rownames(grm)
+
+
+rownames(pc_scores)
+
+
+#l means
+km <- kmeans(pc_scores[,1:3], centers = 3)
+
+#plot
+plot(pc_scores[,1], pc_scores[,2],
+     col = km$cluster, pch = 19,
+     xlab = "PC1", ylab = "PC2", main = "K-means clustering on GRM PCA")
+legend("topleft",                           
+       legend = paste("Cluster", 1:max(km$cluster)), 
+       col = 1:max(km$cluster),            
+       pch = 19)
+
+```
 
 
 ```{r}
@@ -150,6 +197,8 @@ plot(pc_scores[,1], pc_scores[,3],
 plot(pc_scores[,2], pc_scores[,3],
      col = km$cluster, pch = 19,
      xlab = "PC2", ylab = "PC3", main = "K-means clustering on GRM PCA")
+
+
 
 ```
 
@@ -251,8 +300,8 @@ abline(h = -log10(p_c), col = "red", lty = 4)  # Significance
 ```{r}
 # 1. Load and combine important feature names from drought and control RF models
 imp_common_cols <- list(Drought=
-  colnames(readRDS(here("out", "imp_RF2_d.RDS")))[colSums(readRDS(here("out", "imp_RF2_d.RDS"))) > 0.01],
-  Control= colnames(readRDS(here("out", "imp_RF2_c.RDS")))[colSums(readRDS(here("out", "imp_RF2_c.RDS"))) > 0.01]
+  colnames(readRDS(here("out", "imp_RF3_d.RDS")))[colSums(readRDS(here("out", "imp_RF3_d.RDS"))) > 0.01],
+  Control= colnames(readRDS(here("out", "imp_RF3_c.RDS")))[colSums(readRDS(here("out", "imp_RF3_c.RDS"))) > 0.01]
 )
 
 # 2. Extract SNP features and zero-pad chromosome numbers (Chr1_ → Chr01_)
