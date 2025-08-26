@@ -1,9 +1,7 @@
 # Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions
 
-
 This repository contains all scripts and data used for the analysis in **“Interpretable Machine Learning on Soybean Multi-Omics Data Reveals Drought-Driven Shifts of Plant–Microbe Interactions.”**
 
-doi: https://doi.org/10.1101/2025.08.13.670005
 
 
 ---
@@ -37,7 +35,8 @@ Multi-omics data (Genome, Microbiome, Metabolome, Phenotype)
 |------|--------------|
 | `SoyData_Drought2.RDS` | Multi omics data - Drought |
 | `SoyData_Control2.RDS` | Multi omics data - Control |
-
+| `metabolome_namelist.csv` | Metabolome name list (265 features) |
+| `microbiome_namelist.csv` | Microbiome name list (16457 features)|
 ---
 
 for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and associa-
