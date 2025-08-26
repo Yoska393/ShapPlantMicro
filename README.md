@@ -39,6 +39,18 @@ Multi-omics data (Genome, Microbiome, Metabolome, Phenotype)
 | `microbiome_namelist.csv` | Microbiome name list (16457 features)|
 ---
 
+## 📂 data/genome
+Genome marker data (with different LD thresholds)
+
+| File | Description |
+|------|--------------|
+| `genoMarker_LD0.001_SNP3078.RDS`  |  SNP markers filtered at LD = 0.001 |
+| `genoMarker_LD0.01_SNP10143.RDS`  | SNP markers filtered at LD = 0.01  |
+| `genoMarker_LD0.1_SNP16419.RDS`   | SNP markers filtered at LD = 0.1   |
+| `genoMarker_LD0.3_SNP34632.RDS`   | SNP markers filtered at LD = 0.3   |
+---
+
+
 for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and associa-
 tion analysis of 198 soybean accessions in mini-core collections."
 
