@@ -37,8 +37,7 @@ Multi-omics data (Genome, Microbiome, Metabolome, Phenotype)
 |------|--------------|
 | `SoyData_Drought2.RDS` | Multi omics data - Drought |
 | `SoyData_Control2.RDS` | Multi omics data - Control |
-| `metabolome_namelist.csv` | Metabolome name list (265 features) |
-| `microbiome_namelist.csv` | Microbiome name list (16457 features)|
+
 ---
 
 ## 📂 data/genome
@@ -46,10 +45,30 @@ Genome marker data (with different LD thresholds)
 
 | File | Description |
 |------|--------------|
-| `genoMarker_LD0.001_SNP3078.RDS`  |  SNP markers filtered at LD = 0.001 |
+| `genoMarker_LD0.001_SNP3078.RDS`  | SNP markers filtered at LD = 0.001 |
 | `genoMarker_LD0.01_SNP10143.RDS`  | SNP markers filtered at LD = 0.01  |
 | `genoMarker_LD0.1_SNP16419.RDS`   | SNP markers filtered at LD = 0.1   |
 | `genoMarker_LD0.3_SNP34632.RDS`   | SNP markers filtered at LD = 0.3   |
+---
+
+
+## 📂 data/omics_csv
+Genome marker data (with different LD thresholds)
+
+| File | Description |
+|------|--------------|
+| `genoMarker_LD0.001_SNP3078.csv`  | SNP markers filtered at LD = 0.001 |
+| `genoMarker_LD0.01_SNP10143.csv`  | SNP markers filtered at LD = 0.01  |
+| `genoMarker_LD0.1_SNP16419.csv`   | SNP markers filtered at LD = 0.1   |
+| `genoMarker_LD0.3_SNP34632.csv`   | SNP markers filtered at LD = 0.3   |
+| `metabolome_namelist.csv` | Metabolome name list (265 features) |
+| `microbiome_namelist.csv` | Microbiome name list (16457 features)|
+| `met_Control.csv`   | Metabolome (Control) |
+| `met_Drought.csv`   | Metabolome (Drought) |
+| `micro_Control.csv` | Microbiome (Control) |
+| `micro_Drought.csv` | Microbiome (Drought) |
+| `pheno_Control.csv` | Phenotypic traits (Control) |
+| `pheno_Drought.csv` | Phenotypic traits (Drought) |
 ---
 
 
