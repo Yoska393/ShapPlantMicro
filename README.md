@@ -53,7 +53,7 @@ Genome marker data (with different LD thresholds)
 
 
 ## 📂 data/omics_csv
-Genome marker data (with different LD thresholds)
+Multi-Omics data (csv version). The data correspond to the ones in the RDS file above.  
 
 | File | Description |
 |------|--------------|
