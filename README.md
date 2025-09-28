@@ -72,7 +72,6 @@ Multi-Omics data (csv version). The data correspond to the ones in the RDS file 
 ---
 
 
-for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and associa-
-tion analysis of 198 soybean accessions in mini-core collections."
+for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessions in mini-core collections."
 
 
