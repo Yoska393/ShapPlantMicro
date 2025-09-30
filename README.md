@@ -62,7 +62,6 @@ Multi-Omics data raw files. Data include both control
 
 | File | Description |
 |------|--------------|
-
 | `metabolome.csv`   | Metabolome |
 | `microbiome.csv` | Microbiome |
 | `phenotype.csv` | Phenotypic traits |
