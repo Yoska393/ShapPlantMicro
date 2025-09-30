@@ -31,7 +31,7 @@ All scripts
 ---
 
 ## 📂 data 
-Multi-omics data (Genome, Microbiome, Metabolome, Phenotype)
+Multi-omics data (Genome, Microbiome, Metabolome, Phenotype) ready for analysis. Corresponding to the .csv files in "data/filtered"
 
 | File | Description |
 |------|--------------|
@@ -49,29 +49,27 @@ Genome marker data (with different LD thresholds)
 | `genoMarker_LD0.01_SNP10143.RDS`  | SNP markers filtered at LD = 0.01  |
 | `genoMarker_LD0.1_SNP16419.RDS`   | SNP markers filtered at LD = 0.1   |
 | `genoMarker_LD0.3_SNP34632.RDS`   | SNP markers filtered at LD = 0.3   |
----
-
-
-## 📂 data/omics_csv
-Multi-Omics data (csv version). The data correspond to the ones in the RDS file above.  
-
-| File | Description |
-|------|--------------|
 | `genoMarker_LD0.001_SNP3078.csv`  | SNP markers filtered at LD = 0.001 |
 | `genoMarker_LD0.01_SNP10143.csv`  | SNP markers filtered at LD = 0.01  |
 | `genoMarker_LD0.1_SNP16419.csv`   | SNP markers filtered at LD = 0.1   |
 | `genoMarker_LD0.3_SNP34632.csv`   | SNP markers filtered at LD = 0.3   |
-| `metabolome_namelist.csv` | Metabolome name list (265 features) |
-| `microbiome_namelist.csv` | Microbiome name list (16457 features)|
-| `met_Control.csv`   | Metabolome (Control) |
-| `met_Drought.csv`   | Metabolome (Drought) |
-| `micro_Control.csv` | Microbiome (Control) |
-| `micro_Drought.csv` | Microbiome (Drought) |
-| `pheno_Control.csv` | Phenotypic traits (Control) |
-| `pheno_Drought.csv` | Phenotypic traits (Drought) |
 ---
 
 
-for snp full data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessions in mini-core collections."
+
+## 📂 data/raw
+Multi-Omics data raw files. Data include both control 
+
+| File | Description |
+|------|--------------|
+
+| `metabolome.csv`   | Metabolome |
+| `microbiome.csv` | Microbiome |
+| `phenotype.csv` | Phenotypic traits |
+---
+
+
+
+For full SNPs data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessions in mini-core collections."
 
 
