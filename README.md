@@ -62,13 +62,13 @@ Multi-Omics data raw files. Data include both control
 
 | File | Description |
 |------|--------------|
-| `metabolome.csv`   | Metabolome |
-| `microbiome.csv` | Microbiome |
-| `phenotype.csv` | Phenotype |
+| `metabolome.csv`   | Metabolome (265 features)|
+| `microbiome.csv` | Microbiome (16457 features)|
+| `phenotype.csv` | Phenotype (9 features)|
 ---
 
+For microbiome and metabolome, also refer to Dang et al. (2025). "I-SVVS: integrative stochastic variational variable selection to explore joint patterns of multi-omics microbiome data"
 
-
-For full SNPs data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessions in mini-core collections."
+For full SNPs data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessiens in mini-core collections"
 
 
