@@ -58,7 +58,7 @@ Genome marker data (with different LD thresholds)
 
 
 ## 📂 data/raw
-Multi-Omics data raw files. Data include both control 
+Multi-Omics data raw files. Data include both control and drought conditions.
 
 | File | Description |
 |------|--------------|
