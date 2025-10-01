@@ -31,7 +31,7 @@ All scripts
 ---
 
 ## 📂 data 
-Multi-omics data (Genome, Microbiome, Metabolome, Phenotype) ready for analysis. Corresponding to the .csv files in "data/filtered"
+Multi-omics data (Genome, Microbiome, Metabolome, Phenotype) ready for analysis.
 
 | File | Description |
 |------|--------------|
