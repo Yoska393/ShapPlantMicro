@@ -67,8 +67,9 @@ Multi-Omics data raw files. Data include both control and drought conditions.
 | `phenotype.csv` | Phenotype (9 features)|
 ---
 
-For microbiome and metabolome, also refer to Dang et al. (2025). "I-SVVS: integrative stochastic variational variable selection to explore joint patterns of multi-omics microbiome data"
+For microbiome and metabolome, also refer to Dang et al. (2025). "I-SVVS: integrative stochastic variational variable selection to explore joint patterns of multi-omics microbiome data" https://doi.org/10.1093/bib/bbaf132
 
 For full SNPs data, also refer to Kanegae et al. (2021). "Whole-genome sequence diversity and association analysis of 198 soybean accessiens in mini-core collections"
+https://doi.org/10.1093/dnares/dsaa032
 
 
