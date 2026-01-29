@@ -298,6 +298,226 @@ abline(h = -log10(p_c), col = "red", lty = 4)  # Significance
 
 
 ```{r}
+condition_snps_list <- list()
+
+cd2 <- c("Control", "Drought")
+
+for (cd in cd2){
+
+  ## ------------------------------
+  ## phenotype 切り替え
+  ## ------------------------------
+  if (cd == "Control"){
+    Soy_pheno <- pheno_c
+  } else if (cd == "Drought"){
+    Soy_pheno <- pheno_d
+  } else{
+    stop("error")
+  }
+
+  trait.name <- "DryWeight_Leaves_g"
+  y <- Soy_pheno[, trait.name]
+  names(y) <- rownames(Soy_pheno)
+
+  ## ------------------------------
+  ## SNP QC
+  ## ------------------------------
+  bm.maf <- select.snps(bm, condition = maf >= 0.05)
+  bm.maf@ped$pheno <- y[bm@ped$id]
+
+  bm.NonNA <- select.inds(bm.maf, condition = !is.na(pheno))
+  bm.NonNA.maf <- select.snps(bm.NonNA, condition = maf >= 0.05)
+
+  standardize(bm.NonNA.maf) <- "mu_sigma"
+
+  ## ------------------------------
+  ## GRM
+  ## ------------------------------
+  grm <- GRM(bm.NonNA.maf)
+  eigen.grm <- eigen(grm)
+
+  ## ------------------------------
+  ## GWAS (LMM)
+  ## ------------------------------
+  result <- association.test(
+    x = bm.NonNA.maf,
+    method = "lmm",
+    test   = "wald",
+    K      = grm,
+    eigenK = eigen.grm,
+    p      = 3
+  )
+
+  ## ------------------------------
+  ## FDR (BH)
+  ## ------------------------------
+  pvals <- result$p
+  ok <- !is.na(pvals) & pvals > 0
+
+  qvals <- rep(NA_real_, length(pvals))
+  qvals[ok] <- p.adjust(pvals[ok], method = "BH")
+
+  result$q <- qvals
+
+  ## FDR 0.05 で有意な SNP
+  q_c <- 0.05
+  sig_snps_fdr <- result$id[!is.na(result$q) & result$q < q_c]
+  condition_snps_list[[cd]] <- sig_snps_fdr
+
+  ## ------------------------------
+  ## Manhattan plot
+  ##   ・高さ：p値のまま
+  ##   ・chrごとに2色
+  ##   ・FDR<0.05 を赤で上書き
+  ## ------------------------------
+
+  ## chr列名が環境で違うことがあるので吸収（chr / chrom）
+  if (!is.null(result$chr)) {
+    chr <- result$chr
+  } else if (!is.null(result$chrom)) {
+    chr <- result$chrom
+  } else {
+    stop("Cannot find chromosome column in result (expected result$chr or result$chrom).")
+  }
+
+  ## chrごとに2色（交互）
+  chr_levels <- unique(chr)
+  chr_col_map <- rep(c("gray30", "gray70"), length.out = length(chr_levels))
+  names(chr_col_map) <- as.character(chr_levels)
+
+  cols <- chr_col_map[as.character(chr)]
+
+  ## FDRで有意なSNPだけ赤に上書き
+  is_fdr <- !is.na(result$q) & result$q < q_c
+  cols[is_fdr] <- "red"
+
+  gaston::manhattan(
+    result,
+    main = cd,
+    pch  = 20,
+    cex  = 0.6,
+    col  = cols,
+    ylim = c(0, 8)
+  )
+
+  ## ------------------------------
+  ## 参考線（オプション）
+  ## ------------------------------
+
+  # 固定 p 値カット
+  p_c <- 1e-5
+  abline(h = -log10(p_c), col = "darkgray", lty = 3)
+
+  # FDR相当pカット（目安）
+
+}
+
+```
+
+
+```{}
+condition_snps_list <- list()
+
+cd2 <- c("Control", "Drought")
+
+for (cd in cd2){
+
+  ## ------------------------------
+  ## phenotype 切り替え
+  ## ------------------------------
+  if (cd == "Control"){
+    Soy_pheno <- pheno_c
+  } else if (cd == "Drought"){
+    Soy_pheno <- pheno_d
+  } else{
+    stop("error")
+  }
+
+  trait.name <- "DryWeight_Leaves_g"
+  y <- Soy_pheno[, trait.name]
+  names(y) <- rownames(Soy_pheno)
+
+  ## ------------------------------
+  ## SNP QC
+  ## ------------------------------
+  bm.maf <- select.snps(bm, condition = maf >= 0.05)
+  bm.maf@ped$pheno <- y[bm@ped$id]
+
+  bm.NonNA <- select.inds(bm.maf, condition = !is.na(pheno))
+  bm.NonNA.maf <- select.snps(bm.NonNA, condition = maf >= 0.05)
+
+  standardize(bm.NonNA.maf) <- "mu_sigma"
+
+  ## ------------------------------
+  ## GRM
+  ## ------------------------------
+  grm <- GRM(bm.NonNA.maf)
+  eigen.grm <- eigen(grm)
+
+  ## ------------------------------
+  ## GWAS (LMM)
+  ## ------------------------------
+  result <- association.test(
+    x = bm.NonNA.maf,
+    method = "lmm",
+    test   = "wald",
+    K      = grm,
+    eigenK = eigen.grm,
+    p      = 3
+  )
+
+  ## ------------------------------
+  ## FDR (BH)
+  ## ------------------------------
+  pvals <- result$p
+  ok <- !is.na(pvals) & pvals > 0
+
+  qvals <- rep(NA_real_, length(pvals))
+  qvals[ok] <- p.adjust(pvals[ok], method = "BH")
+
+  result$q <- qvals
+
+  ## FDR 0.05 で有意な SNP
+  q_c <- 0.05
+  sig_snps_fdr <- result$id[!is.na(result$q) & result$q < q_c]
+  condition_snps_list[[cd]] <- sig_snps_fdr
+
+  ## ------------------------------
+  ## Manhattan plot
+  ##   ・高さ：p値のまま
+  ##   ・色：FDR<0.05 を強調
+  ## ------------------------------
+  is_fdr <- !is.na(result$q) & result$q < q_c
+
+  cols <- rep("black", length(result$p))
+  cols[is_fdr] <- "red"
+
+  gaston::manhattan(
+    result,
+    main = cd,
+    pch  = 20,
+    cex  = 0.6,
+    col  = cols,
+    ylim = c(0, 8)
+  )
+
+  ## ------------------------------
+  ## 参考線（オプション）
+  ## ------------------------------
+
+  # 固定 p 値カット
+  p_c <- 1e-5
+  abline(h = -log10(p_c), col = "darkgray", lty = 3)
+
+
+}
+
+
+
+```
+
+
+```{r}
 # 1. Load and combine important feature names from drought and control RF models
 imp_common_cols <- list(Drought=
   colnames(readRDS(here("out", "imp_RF3_d.RDS")))[colSums(readRDS(here("out", "imp_RF3_d.RDS"))) > 0.01],

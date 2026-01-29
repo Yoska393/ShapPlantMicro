@@ -16,6 +16,8 @@ library(RAINBOWR)
 library(foreach)
 library(ggplot2)
 require(reshape2)
+library(ggrepel)
+
 ```
 
 
@@ -221,6 +223,11 @@ if (cd == "Control") {
   } else {
     stop("Unknown condition.")
   }
+	
+rownames(imp_all)<- c("LeafDryWeight", "ShootDryWeight",
+                          "ShootFreshWeight", "LeafFreshWeight",
+                          "GrowthStage", "NumberOfNodes",
+                          "NumberOfBranches", "PlantHeight", "MainStemLength")
 
 
 threshold <- 0

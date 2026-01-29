@@ -91,6 +91,7 @@ get_label <- function(name) {
 ```
 
 
+
 ```{r}
 # 1. 両方の重要度ファイルを読み込み
 imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
@@ -520,5 +521,358 @@ theme(
 
 
 ```
+
+
+# null distribution
+
+```{r}
+library(iml)
+library(ranger)
+library(dplyr)
+library(progress)
+
+set.seed(123)
+
+cd2 <- c("Control","Drought")
+for (cd in cd2) {
+
+  if (cd == "Drought") {
+    X <- X_selected_drought
+    Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+  } else if (cd == "Control") {
+    X <- X_selected_control
+    Data <- readRDS(here("data/SoyData_Control2.RDS"))
+  } else {
+    stop("Unknown condition")
+  }
+
+  genome   <- Data$genome
+  grm.cd   <- Data$grm
+  met.cd   <- Data$met
+  mic.cd   <- Data$mic
+  psc19    <- Data$pheno
+  microname<- Data$microname
+  metname  <- Data$metname
+  cd_vec   <- Data$cd   # 元の cd 上書き防止のため別名に
+
+  genome <- scale(genome)
+  met.cd <- scale(met.cd)
+  mic.cd <- scale(mic.cd)
+  psc19  <- scale(psc19)
+
+  mm <- matrix(metname, length(metname), 1)
+  rownames(mm) <-  paste0("X", 1:length(metname))
+
+  cm <- matrix(microname, length(microname), 1)
+  rownames(cm) <-  paste0("B", 1:length(microname))
+
+  mm <- gsub(
+    pattern = "^(DL-|L-\\(-\\)|D-\\(-\\)|L-|D-|(+-)-|(-)-)|(+-)-|D-", 
+    replacement = "", 
+    x = mm
+  )
+
+  mm[182]<-"Marein"
+  mm[187]<-"Sodium pantothenate"
+  mm[189]<-"Mannose-6-phosphate"
+  mm[190]<-"Fructose-6-phosphate"
+  mm[197]<-"Mannitol"
+  mm[208]<-"Indole-3-carboxyaldehyde"
+  mm[53] <-"Ornithine"
+  mm[75] <-"GABA"
+  mm[38] <-"2,3-Diaminopropionic acid"
+  mm[102]<-"Quinic acid"
+  mm[227]<-"Quercetin 3-Glucoside"
+  mm[205]<-"Threonine"
+  mm[206]<-"2-Aminobutyric acid"
+  mm[188]<-"Glucose-1-phosphate"
+
+  micro_labels_genus <- mapply(extract_genus, cm[,1], rownames(cm))
+
+  X <- scale(X)
+  X <- data.frame(X)
+
+  Y <- data.frame(psc19)
+  yname <- colnames(Y)[1]  # 1つ目の表現型だけ見る想定
+
+  ## ---------- ここから 5 seed での SHAP ---------- ##
+  seeds <- 1:5
+  shap_rep_list <- vector("list", length(seeds))
+
+  for (k in seq_along(seeds)) {
+    s <- seeds[k]
+    set.seed(s)
+    cat("Condition:", cd, "seed:", s, "\n")
+
+    df <- X
+    df[[yname]] <- Y[[1]]
+
+    rf_model <- ranger(
+      formula = as.formula(paste(yname, "~ .")),
+      data = df
+    )
+
+    predictor <- Predictor$new(rf_model, data = X, y = Y[[1]])
+
+    pb <- progress_bar$new(
+      format = paste0("  SHAP seed ", s, " [:bar] :percent in :elapsed"),
+      total = nrow(X), clear = FALSE, width = 60
+    )
+
+    shap_all_results <- lapply(1:nrow(X), function(j) {
+      pb$tick()
+      shap <- Shapley$new(predictor, x.interest = X[j, , drop = FALSE])
+      shap$results
+    })
+
+    shap_df <- do.call(rbind, shap_all_results)
+    colnames(shap_df) <- c("feature", "phi", "feature_value")
+    shap_df <- shap_df[, !is.na(colnames(shap_df))]
+
+    ## ネットワーク用に「一つだけ」保存したいなら、例えば seed == 1 のときに保存
+    if (s == 1) {
+      saveRDS(shap_df, here("out", paste0("shap_df", cd, "_def.rds")))
+    }
+
+    # この seed 内で feature ごとの mean|phi| を計算
+    shap_summary_seed <- shap_df %>%
+      group_by(feature) %>%
+      summarise(mean_phi = mean(abs(phi)), .groups = "drop") %>%
+      mutate(seed = s)
+
+    shap_rep_list[[k]] <- shap_summary_seed
+  }
+
+  # 5 seed 分をまとめて feature ごとに平均・分散・SE を計算
+  shap_rep_all <- bind_rows(shap_rep_list)
+
+  n_rep <- length(seeds)
+
+  shap_stats <- shap_rep_all %>%
+    group_by(feature) %>%
+    summarise(
+      mean_phi = mean(mean_phi),
+      sd_phi   = sd(mean_phi),
+      se_phi   = sd_phi / sqrt(n_rep),
+      .groups  = "drop"
+    )
+
+  saveRDS(
+    shap_stats,
+    here("out", paste0("shap_summary_", cd, "_rep", n_rep, ".rds"))
+  )
+}
+
+```
+
+```{r}
+node_colors <- c("Genome" = "#FF6F61",
+                 "Microbiome" = "#66B032",
+                 "Metabolome" = "orange",
+                 "Phenotype" = "#9B4F96",
+                 "Other" = "#B0B0B0")
+
+shap_control <- readRDS(here("out", "shap_summary_Control_rep5.rds")) %>%
+  mutate(condition = "Control")
+shap_drought <- readRDS(here("out", "shap_summary_Drought_rep5.rds")) %>%
+  mutate(condition = "Drought")
+
+add_group_and_label <- function(df) {
+  df %>%
+    mutate(
+      group = case_when(
+        str_starts(feature, "C") ~ "Genome",
+        str_starts(feature, "B") ~ "Microbiome",
+        str_starts(feature, "X") ~ "Metabolome",
+        TRUE ~ "Other"
+      ),
+      label = sapply(feature, get_label)
+    ) %>%
+    filter(!is.na(label))
+}
+
+shap_control <- add_group_and_label(shap_control)
+shap_drought <- add_group_and_label(shap_drought)
+
+shap_top_control <- shap_control %>% top_n(20, mean_phi)
+shap_top_drought <- shap_drought %>% top_n(20, mean_phi)
+
+library(patchwork)
+
+p1 <- ggplot(shap_top_control,
+             aes(x = reorder(label, mean_phi),
+                 y = mean_phi, fill = group)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean_phi - se_phi,
+                    ymax = mean_phi + se_phi),
+                width = 0.2) +
+  coord_flip() +
+  scale_fill_manual(values = node_colors) +
+  scale_y_continuous(limits = c(0, 0.05), expand = c(0, 0)) +
+  labs(
+    title = "Top 20 SHAP Values – Control (5 seeds)",
+    x = "Feature",
+    y = "Mean Absolute SHAP Value",
+    fill = "Feature Group"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+p2 <- ggplot(shap_top_drought,
+             aes(x = reorder(label, mean_phi),
+                 y = mean_phi, fill = group)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean_phi - se_phi,
+                    ymax = mean_phi + se_phi),
+                width = 0.2) +
+  coord_flip() +
+  scale_fill_manual(values = node_colors) +
+  scale_y_continuous(limits = c(0, 0.05), expand = c(0, 0)) +
+  labs(
+    title = "Top 20 SHAP Values – Drought (5 seeds)",
+    x = "Feature",
+    y = "Mean Absolute SHAP Value",
+    fill = "Feature Group"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))
+
+p2 + p1
+
+shap_ratio <- full_join(
+  shap_control %>% select(feature,
+                          mean_phi_control = mean_phi,
+                          se_control = se_phi),
+  shap_drought %>% select(feature,
+                          mean_phi_drought = mean_phi,
+                          se_drought = se_phi),
+  by = "feature"
+) %>%
+  mutate(
+    ratio      = mean_phi_drought / mean_phi_control,
+    log2_ratio = log2(ratio),
+    var_log2   = (1 / (log(2)^2)) *
+                 ((se_drought / mean_phi_drought)^2 +
+                  (se_control / mean_phi_control)^2),
+    se_log2    = sqrt(var_log2),
+    label = sapply(feature, get_label),
+    group = case_when(
+      str_starts(feature, "C") ~ "Genome",
+      str_starts(feature, "B") ~ "Microbiome",
+      str_starts(feature, "X") ~ "Metabolome",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  filter(!is.na(ratio), is.finite(ratio), !is.na(label))
+
+shap_ratio_up <- shap_ratio %>%
+  filter(log2_ratio > 2.5) %>%
+  arrange(desc(log2_ratio)) %>%
+  slice_head(n = 20)
+
+shap_ratio_down <- shap_ratio %>%
+  filter(log2_ratio < -2.5) %>%
+  arrange(log2_ratio) %>%
+  slice_head(n = 20)
+
+shap_ratio_combined <- bind_rows(shap_ratio_up, shap_ratio_down)
+
+shap_ratio_combined$label[shap_ratio_combined$label == "B113"] <- "Uncultured (Methylophilaceae)"
+shap_ratio_combined$label[shap_ratio_combined$label == "B356"] <- "Uncultured (Comamonadaceae)"
+
+ggplot(shap_ratio_combined,
+       aes(x = reorder(label, log2_ratio),
+           y = log2_ratio,
+           fill = group)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = log2_ratio - se_log2,
+                    ymax = log2_ratio + se_log2),
+                width = 0.2) +
+  coord_flip() +
+  scale_fill_manual(values = node_colors) +
+  labs(
+    title = "Selected features by SHAP value (Drought / Control)",
+    x = "Feature",
+    y = "log2( mean absolute SHAP Ratio: Drought / Control )",
+    fill = "Feature Group"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title  = element_text(size = 14, face = "bold")
+  )
+
+
+```
+
+
+```{r}
+n_perm <- 100
+null_list <- vector("list", n_perm)
+
+for (p in 1:n_perm) {
+  cat("Permutation", p, "for condition", cd, "\n")
+
+  set.seed(1000 + p)
+
+  Y_perm <- sample(Y[[1]])
+
+  df_perm <- X
+  df_perm[[yname]] <- Y_perm
+
+  rf_perm <- ranger(
+    formula = as.formula(paste(yname, "~ .")),
+    data = df_perm
+  )
+
+  predictor_perm <- Predictor$new(
+    rf_perm,
+    data = X,
+    y = Y_perm
+  )
+
+  pb_perm <- progress_bar$new(
+    format = paste0("  SHAP perm ", p, " [:bar] :percent in :elapsed"),
+    total = nrow(X), clear = FALSE, width = 60
+  )
+
+  shap_perm_results <- lapply(1:nrow(X), function(j) {
+    pb_perm$tick()
+    shap <- Shapley$new(predictor_perm, x.interest = X[j, , drop = FALSE])
+    shap$results
+  })
+
+  shap_df_perm <- do.call(rbind, shap_perm_results)
+  colnames(shap_df_perm) <- c("feature", "phi", "feature_value")
+  shap_df_perm <- shap_df_perm[, !is.na(colnames(shap_df_perm))]
+
+  shap_perm_summary <- shap_df_perm %>%
+    group_by(feature) %>%
+    summarise(mean_phi = mean(abs(phi)), .groups = "drop") %>%
+    mutate(perm_id = p)
+
+  null_list[[p]] <- shap_perm_summary
+}
+
+shap_null_all <- bind_rows(null_list)
+
+saveRDS(
+  shap_null_all,
+  here("out", paste0("shap_null_", cd, "_nperm", n_perm, ".rds"))
+)
+
+```
+
+
+```{r}
+shap_null_all <- readRDS(here("out", "shap_null_Control_nperm100.rds"))
+
+null_dist <- shap_null_all$mean_phi
+
+quantile(null_dist, probs = c(0.95, 0.99))
+
+```
+
 
 

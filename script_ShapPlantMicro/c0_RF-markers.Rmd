@@ -76,7 +76,7 @@ bm3k<-  scale(bm3k[var.id,])
 
 cd<-Data$cd
 
-genome<- 
+#genome<- 
 
 psc19 <- scale(psc19)
 ```
@@ -105,8 +105,6 @@ save vector of cor for each input -> matrix
 list for each ncol(Y)
 
 ```{r,eval=T}
-
-
 set.seed(123)
 
 # --- Input ---
@@ -214,14 +212,19 @@ cor.list[[1]]
 cor.summary
 
 reshape2::dcast(cor.summary, Trait ~ Dataset, value.var = "MeanCor")
+```
 
 
+```{r,eval=F}
+saveRDS(cor.summary,here("out","markersize.rds"))
 ```
 
 
 ```{r,fig.height=6,fig.width=8}
 library(ggplot2)
 library(dplyr)
+
+cor.summary <- readRDS(here("out","markersize.rds"))
 
 
 cor.summary <- bind_rows(summary_list)
@@ -244,6 +247,7 @@ ggplot(cor.summary, aes(x = Dataset, y = MeanCor, fill = Dataset)) +
    theme(
     axis.text.x =  element_blank(),
     axis.title.x = element_blank() 
-  )
+  ) +
+ 
+  scale_fill_brewer(palette = "Set2")
 ```
-

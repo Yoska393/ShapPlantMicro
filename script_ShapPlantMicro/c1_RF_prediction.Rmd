@@ -52,7 +52,7 @@ if (file.exists(seedIndCsv)) {
 ```
 
 ```{r}
-cd = "Control"
+cd = "Drought"
 
 if (cd == "Drought"){
 	CD<-"W4"
@@ -82,15 +82,24 @@ psc19 <- scale(psc19)
 
 dim(mic.cd)
 dim(met.cd)
-
-
-#miname_df <- data.frame(miname = miname)
-#write.csv(miname_df, file = "miname.csv", row.names = FALSE)
-
-#metname_df <- data.frame(metname = metname)
-#write.csv(metname_df, file = "metname.csv", row.names = FALSE)
+# 
+# mi_df    <- data.frame(mic.cd)
+# met_df   <-  data.frame(met.cd)
+# pheno_df <- data.frame(pheno.cd = psc19)
+# 
+# write.csv(mi_df,    file = paste0("omics_csv/micro_", cd, ".csv"), row.names = T)
+# write.csv(met_df,   file = paste0("omics_csv/met_", cd, ".csv"),   row.names = T)
+# write.csv(pheno_df, file = paste0("omics_csv/pheno_", cd, ".csv"), row.names = T)
+# 
+# 
+# miname_df <- data.frame(miname = miname)
+# write.csv(miname_df, file = "miname.csv", row.names = T)
+# 
+# metname_df <- data.frame(metname = metname)
+# write.csv(metname_df, file = "metname.csv", row.names = T)
 
 ```
+
 
 # RF for pheno
 

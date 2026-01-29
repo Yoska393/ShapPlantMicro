@@ -1,0 +1,915 @@
+---
+title: "shap_network_subset"
+author: "Hayato Yoshioka"
+date: "2025-06-05"
+output: html_document
+---
+
+
+SHAP for one factor (ratio)
+
+```{r}
+require(here)
+source("Script/MyFunctions.R")
+library(bnlearn)
+library(iml)
+require(ranger)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(dplyr)
+library(progress)
+library(here)
+library(tidyverse)
+library(xtable)
+library(scales)
+library(dplyr)
+library(purrr)
+library(igraph)
+library(ggraph)
+library(xtable)
+```
+
+```{r}
+
+get_label <- function(name) {
+  if (str_starts(name, "X")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "X")))
+    if (!is.na(idx) && idx <= nrow(mm)) {
+      return(substr(mm[idx, 1], 1, 60))
+    }
+  } else if (str_starts(name, "B")) {
+    idx <- suppressWarnings(as.numeric(str_remove(name, "B")))
+  if (!is.na(idx) && idx <= length(micro_labels_genus)) {
+    genus <- micro_labels_genus[idx]
+    if (!is.na(genus) && genus != "") {
+      return(substr(genus, 1, 60))
+    } else {
+      return("uncultured")
+    }
+  } else {
+    return("uncultured")
+  }
+  }
+  return(name)  # fallback
+	
+}
+
+```
+
+```{r}
+cd = "Drought"
+
+if (cd == "Drought"){
+	CD<-"W4"
+	Data<-readRDS(here("data/SoyData_Drought2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_d.RDS"))
+} else if (cd=="Control"){
+	CD<-"W1"
+	Data<-readRDS(here("data/SoyData_Control2.RDS"))
+	imp_total<-readRDS(here("out","imp_RF2_c.RDS"))
+} else {
+	stop()
+}
+	
+genome<-Data$genome
+grm.cd<-Data$grm
+met.cd<-Data$met
+mic.cd<-Data$mic
+#mir.cd<-Data$mir
+psc19<-Data$pheno
+microname<-Data$microname
+metname<-Data$metname
+cd<-Data$cd
+
+genome<- scale(genome)
+met.cd<-scale(met.cd)
+mic.cd <- scale(mic.cd)
+psc19 <- scale(psc19)
+
+dim(genome)
+dim(mic.cd)
+dim(met.cd)
+
+dim(imp_total)
+
+mm<-matrix(metname,length(metname),1)
+rownames(mm)<-  paste0("X", 1:length(metname))
+
+cm<-matrix(microname,length(microname),1)
+rownames(cm)<-  paste0("B", 1:length(microname))
+
+extract_genus <- function(tax_str) {
+  genus_match <- regmatches(tax_str, regexpr("g__[^;]+", tax_str))
+  ifelse(length(genus_match) > 0, gsub("g__", "", genus_match), NA)
+}
+
+micro_labels_genus <- sapply(cm, extract_genus)
+
+mm <- gsub(
+  pattern = "^(DL-|L-\\(-\\)|D-\\(-\\)|L-|D-|(+-)-|(-)-)|(+-)-|D-", 
+  replacement = "", 
+  x = mm
+)
+
+
+mm[182]<-"Marein"
+mm[187]<-"Sodium pantothenate"
+mm[179]<-"Cyanidin-3,5-di-O-glucoside chloride"
+mm[183]<-"alpha-D-Glucose-1-phosphate"
+mm[189]<-"Mannose-6-phosphate"
+mm[190]<-"Fructose-6-phosphate"
+mm[192]<-"Zeatin"
+mm[197]<-"Mannitol"
+mm[203]<-"Alanine_Sarcosine"
+mm[206]<-"Aminobutyric acid"
+mm[208]<-"Indole-3-carboxyaldehyde"
+mm[241]<-"Synephrine"
+mm[242]<-"Epigallocatechin"
+mm[53]<-"Ornithine"
+mm[75]<-"GABA"
+mm[38] <-"2,3-Diaminopropionic acid"
+mm[102]<-"Quinic acid"
+mm[198]<-"Arginine"
+mm[157]<-"Quercetin"
+mm[227]<-"Isoquercitrin"
+mm[39]<-"Methylaspartic acid"
+mm[70]<-"Uridine"
+mm[196]<-"Melibiose hydrate"
+
+#micro_labels_genus[]
+#micro_labels_genus
+```
+
+# p updated
+
+# global (with p)
+
+
+```{r, fig.height=8, fig.width=10}
+suppressMessages({
+  library(here)
+  library(dplyr)
+  library(purrr)
+  library(igraph)
+  library(ggraph)
+  library(ggrepel)
+  library(scales)
+})
+
+# 0) label function ---------------------------------------------------
+if (!exists("get_label")) {
+  get_label <- function(x) x
+}
+
+# 1) load -------------------------------------------------------------
+# res2 <- readRDS(here("out", "edges_diff2_global_with_p.rds"))
+# res3 <- readRDS(here("out", "edges_diff2_global_with_p_and_signstab.rds"))
+
+res <- readRDS(here("out", "edges_diff_full_with_p_stable_2percent.rds"))
+
+
+
+#res$sign_stability<-pode
+# expected cols:
+# from,to,diff_raw,diff_abs,z_diff,p_pos,p_neg,p_two,padj_pos,padj_neg,padj_two
+
+target_nodes <- c("X235", "X53", "X45", "X75", "X35", "X98", "X190", "Chr4_22035062")
+
+# 2) edge table -------------------------------------------------------
+edges_all <- res %>%
+  filter(!is.na(z_diff), is.finite(z_diff)) %>%
+  transmute(
+    from       = from,
+    to         = to,
+    diff       = diff_raw,         
+    abs_weight = abs(diff_raw),
+    z          = z_diff,            # ★ z_diff 
+    p_pos      = p_pos,
+    p_neg      = p_neg,
+    p_two      = p_two,
+    padj_two   = padj_two,
+    Condition  = ifelse(diff_raw > 0, "Drought", "Control")
+  ) %>%
+  filter(from != to)
+
+# 3) z threshold  ----------------------------------------
+ZTH <- 30
+
+top_pos <- edges_all %>% filter(z >=  ZTH)
+top_neg <- edges_all %>% filter(z <= -ZTH)
+
+# bind
+edges_sel <- bind_rows(top_pos, top_neg) %>%
+  mutate(pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))) %>%
+  distinct(pair, .keep_all = TRUE) %>%
+  select(-pair)
+
+# if only one node -> removed
+node_degrees <- table(c(edges_sel$from, edges_sel$to))
+edges_sel <- edges_sel %>%
+  filter(node_degrees[from] > 1 | node_degrees[to] > 1)
+
+# 4) node table -------------------------------------------------------
+nodes <- data.frame(name = unique(c(edges_sel$from, edges_sel$to))) %>%
+  mutate(
+    Type = case_when(
+      grepl("^Ch",  name) ~ "Genome",
+      grepl("^B",   name) ~ "Microbiome",
+      grepl("^X",   name) ~ "Metabolome",
+      grepl("^Dry", name) ~ "Phenotype",
+      TRUE                ~ "Other"
+    ),
+    label     = sapply(name, get_label),
+    is_target = name %in% target_nodes
+  )
+
+# 5) graph ------------------------------------------------------------
+g_diff <- graph_from_data_frame(
+  d = edges_sel,
+  vertices = nodes,
+  directed = FALSE
+)
+
+V(g_diff)$degree <- degree(g_diff)
+V(g_diff)$point_size_group <- case_when(
+  V(g_diff)$degree <= 2  ~ "1-2",
+  V(g_diff)$degree <= 5  ~ "3-5",
+  V(g_diff)$degree <= 10 ~ "6-10",
+  TRUE                   ~ "10+"
+)
+V(g_diff)$point_size_group <- factor(V(g_diff)$point_size_group,
+                                     levels = c("1-2","3-5","6-10","10+"))
+
+point_size_values <- c("1-2" = 4, "3-5" = 6, "6-10" = 8, "10+" = 9)
+
+V(g_diff)$label     <- sapply(V(g_diff)$name, get_label)
+V(g_diff)$is_target <- V(g_diff)$name %in% target_nodes
+V(g_diff)$text_size <- ifelse(V(g_diff)$is_target, 3.5, 3.2)
+
+node_colors <- c(
+  "Genome"     = "#FF6F61",
+  "Microbiome" = "#66B032",
+  "Metabolome" = "orange",
+  "Phenotype"  = "#9B4F96",
+  "Other"      = "#B0B0B0"
+)
+
+for (seednum in c(2)){
+	
+	
+
+set.seed(seednum)
+
+p <- ggraph(g_diff, layout = "fr") +
+  geom_edge_link(aes(edge_colour = Condition, edge_width = abs_weight), alpha = 0.7) +
+  scale_edge_width(name="Strength |D-C|", range=c(1.5, 3), labels=scales::scientific) +
+  scale_edge_color_manual(values = c("Drought"="#D7263D", "Control"="#1E90FF")) +
+  geom_node_point(aes(color = Type, size = point_size_group)) +
+  geom_node_text(aes(label = label, fontface = ifelse(is_target,"bold","plain")),
+                 repel = TRUE, size = V(g_diff)$text_size) +
+  scale_size_manual(name="Degree", values=point_size_values) +
+  scale_color_manual(values=node_colors) +
+  theme_void()
+
+print(p)
+
+}
+
+# 6) table ---------------------------------------
+edge_pairs_sorted <- edges_sel %>%
+  transmute(
+    node1_id  = pmin(from, to),
+    node2_id  = pmax(from, to),
+    node1     = sapply(pmin(from, to), get_label),  # ★ 表示名
+    node2     = sapply(pmax(from, to), get_label),  # ★ 表示名
+    diff      = diff,
+    z         = z,
+    p_two     = p_two,
+    padj_two  = padj_two,
+    Condition = Condition
+  ) %>%
+  distinct(node1_id, node2_id, .keep_all = TRUE) %>%  # 無向ペアで重複除去
+  arrange(desc(z))
+
+head(edge_pairs_sorted, 10)
+tail(edge_pairs_sorted, 10)
+
+dim(edge_pairs_sorted)
+
+```
+
+more variable (also bigger)
+
+```{r, fig.height=10, fig.width=15}
+suppressMessages({
+  library(here)
+  library(dplyr)
+  library(purrr)
+  library(igraph)
+  library(ggraph)
+  library(ggrepel)
+  library(scales)
+})
+
+# 0) label function ---------------------------------------------------
+if (!exists("get_label")) {
+  get_label <- function(x) x
+}
+
+# 1) load -------------------------------------------------------------
+#res <- readRDS(here("out", "edges_diff2_global_with_p_and_signstab.rds"))
+
+# expected cols:
+# from,to,diff_raw,diff_abs,z_diff,p_pos,p_neg,p_two,padj_pos,padj_neg,padj_two
+
+target_nodes <- c("X235", "X53", "X45", "X75", "X35", "X98", "X190", "Chr4_22035062")
+
+# 2) edge table -------------------------------------------------------
+edges_all <- res %>%
+  filter(!is.na(z_diff), is.finite(z_diff)) %>%
+  transmute(
+    from       = from,
+    to         = to,
+    diff       = diff_raw,          #  D - C
+    abs_weight = abs(diff_raw),
+    z          = z_diff,            # ★ z_diff 
+    p_pos      = p_pos,
+    p_neg      = p_neg,
+    p_two      = p_two,
+    padj_two   = padj_two,
+    Condition  = ifelse(diff_raw > 0, "Drought", "Control"),
+    Stability = stability
+  ) %>%
+  filter(from != to)
+
+edges_all <- edges_all[
+  !(edges_all[, 1] == "X40" | edges_all[, 2] == "X40"),
+]
+
+
+# 3) z threshold (ここだけ調整) ----------------------------------------
+outdir <- here("out", "networks_by_Z")
+dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+for (ZTH in c(5,10,20,30,40,50,60)){
+#for (ZTH in c(60)){
+  # -----------------------------
+  # select edges
+  # -----------------------------
+  top_pos <- edges_all %>% filter(z >=  ZTH)
+  top_neg <- edges_all %>% filter(z <= -ZTH)
+
+  edges_sel <- bind_rows(top_pos, top_neg) %>%
+    mutate(pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))) %>%
+    distinct(pair, .keep_all = TRUE) %>%
+    select(-pair)
+
+  # % connections (before degree filtering)
+  pct_conn <- 100 * nrow(edges_sel) / 3722356
+
+  # only one node -> removed
+  node_degrees <- table(c(edges_sel$from, edges_sel$to))
+  edges_sel <- edges_sel %>%
+    filter(node_degrees[from] > 1 | node_degrees[to] > 1)
+
+  # -----------------------------
+  # node table
+  # -----------------------------
+  nodes <- data.frame(name = unique(c(edges_sel$from, edges_sel$to))) %>%
+    mutate(
+      Type = case_when(
+        grepl("^Ch",  name) ~ "Genome",
+        grepl("^B",   name) ~ "Microbiome",
+        grepl("^X",   name) ~ "Metabolome",
+        grepl("^Dry", name) ~ "Phenotype",
+        TRUE                ~ "Other"
+      ),
+      label     = sapply(name, get_label),
+      is_target = name %in% target_nodes
+    )
+
+  # -----------------------------
+  # graph
+  # -----------------------------
+  g_diff <- graph_from_data_frame(
+    d = edges_sel,
+    vertices = nodes,
+    directed = FALSE
+  )
+
+  V(g_diff)$degree <- degree(g_diff)
+  V(g_diff)$point_size_group <- case_when(
+    V(g_diff)$degree <= 2  ~ "1-2",
+    V(g_diff)$degree <= 5  ~ "3-5",
+    V(g_diff)$degree <= 10 ~ "6-10",
+    TRUE                   ~ "10+"
+  )
+  V(g_diff)$point_size_group <- factor(
+    V(g_diff)$point_size_group,
+    levels = c("1-2","3-5","6-10","10+")
+  )
+
+  point_size_values <- c("1-2" = 4, "3-5" = 6, "6-10" = 8, "10+" = 9)
+
+  V(g_diff)$label     <- sapply(V(g_diff)$name, get_label)
+  V(g_diff)$is_target <- V(g_diff)$name %in% target_nodes
+  V(g_diff)$text_size <- ifelse(V(g_diff)$is_target, 3.5, 3.2)
+
+  node_colors <- c(
+    "Genome"     = "#FF6F61",
+    "Microbiome" = "#66B032",
+    "Metabolome" = "orange",
+    "Phenotype"  = "#9B4F96",
+    "Other"      = "#B0B0B0"
+  )
+
+  set.seed(2)
+
+  # -----------------------------
+  # plot
+  # -----------------------------
+  p <- ggraph(g_diff, layout = "fr") +
+    geom_edge_link(aes(edge_colour = Condition, edge_width = abs_weight),
+                   alpha = 0.7) +
+    scale_edge_width(
+      name = "Strength |D − C|",
+      range = c(1.5, 3),
+      labels = scales::scientific
+    ) +
+    scale_edge_color_manual(
+      name = "Condition",
+      values = c("Drought"="#D7263D", "Control"="#1E90FF")
+    ) +
+    geom_node_point(aes(color = Type, size = point_size_group)) +
+    geom_node_text(
+      aes(label = label,
+          fontface = ifelse(is_target,"bold","plain")),
+      repel = TRUE,
+      size  = V(g_diff)$text_size
+    ) +
+    scale_size_manual(
+      name = "Degree",
+      values = point_size_values
+    ) +
+    scale_color_manual(
+      name = "Node type",
+      values = node_colors
+    ) +
+    labs(
+ title = sprintf(
+  "Z threshold: |Z| \u2265 %d:   %d connections (%.3f%%)",
+  ZTH, nrow(edges_sel), pct_conn
+)
+) +
+    theme_void() +
+    theme(
+  plot.title.position = "plot",     
+  plot.title = element_text(
+    hjust = 0,                       
+    vjust = 1,                    
+    size  = 18,
+    face  = "bold"
+  ),
+
+  legend.title = element_text(size = 14),
+  legend.text  = element_text(size = 12),
+  legend.key.size = unit(0.9, "cm")
+)
+
+  print(p)
+  
+  ggsave(
+    filename = sprintf("shap_diff_network_Z%d.png", ZTH),
+    plot     = p,
+    path     = outdir,
+    width    = 15,
+    height   = 10,
+    dpi      = 300
+  )
+}
+
+
+# 6) table (z and p) --------------------------------------------
+edge_pairs_sorted <- edges_sel %>%
+  transmute(
+    node1    = pmin(from, to),
+    node2    = pmax(from, to),
+    diff     = diff,
+    z        = z,
+    p_two    = p_two,
+    padj_two = padj_two,
+    Condition = Condition
+  ) %>%
+  distinct() %>%
+  arrange(desc(z))
+
+head(edge_pairs_sorted, 10)
+tail(edge_pairs_sorted, 10)
+
+dim(edge_pairs_sorted)
+
+```
+
+```{r}
+suppressMessages({
+  library(here)
+  library(dplyr)
+  library(purrr)
+  library(readr)
+  library(knitr)
+  library(kableExtra)
+})
+
+escape_latex <- function(x) {
+  x %>%
+    gsub("\\\\","\\\\textbackslash{}", .) %>%
+    gsub("([{}_#%&$])","\\\\\\1", .)
+}
+
+
+# table function
+make_edge_table <- function(edges_all, ZTH, get_label) {
+  top_pos <- edges_all %>% filter(z >=  ZTH)
+  top_neg <- edges_all %>% filter(z <= -ZTH)
+
+  edges_sel <- bind_rows(top_pos, top_neg) %>%
+    mutate(pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))) %>%
+    distinct(pair, .keep_all = TRUE) %>%
+    select(-pair)
+
+  node_degrees <- table(c(edges_sel$from, edges_sel$to))
+  edges_sel <- edges_sel %>%
+    filter(node_degrees[from] > 1 | node_degrees[to] > 1)
+
+  edges_sel %>%
+    transmute(
+      node1_id  = pmin(from, to),
+      node2_id  = pmax(from, to),
+      node1     = sapply(pmin(from, to), get_label),
+      node2     = sapply(pmax(from, to), get_label),
+      diff      = diff,
+      z         = z,
+      p_two     = p_two,
+      Condition = Condition,
+      Stability = Stability
+    ) %>%
+    distinct(node1_id, node2_id, .keep_all = TRUE) %>%
+    arrange(desc(z))
+}
+
+# ------------------------------------------------------------
+# (A) ZTH = 5 : CSV
+# ------------------------------------------------------------
+edge_pairs_z5 <- make_edge_table(edges_all, ZTH = 5, get_label = get_label)
+
+write_csv(
+  edge_pairs_z5,
+  here("out", "edge_table_ZTH5.csv")
+)
+
+
+
+suppressMessages({
+  library(dplyr)
+  library(purrr)
+  library(stringr)
+})
+
+suppressMessages({
+  library(dplyr)
+  library(purrr)
+  library(stringr)
+  library(here)
+})
+
+#--------------------------------------------------
+# LaTeX escape（missing $ inserted 対策）
+#--------------------------------------------------
+escape_latex <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\\\", "\\\\textbackslash{}", x)    
+  x <- gsub("([{}_#%&$])", "\\\\\\1", x)         
+  x
+}
+
+suppressMessages({
+  library(dplyr)
+  library(purrr)
+  library(stringr)
+  library(here)
+})
+
+#--------------------------------------------------
+# LaTeX escape（missing $ inserted）
+#--------------------------------------------------
+escape_latex <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\\\", "\\\\textbackslash{}", x)
+  x <- gsub("([{}_#%&$])", "\\\\\\1", x)
+  x
+}
+
+#--------------------------------------------------
+# ZTH=30 table
+#--------------------------------------------------
+ZTH <- 30
+
+edge_tab_z50 <- edges_all %>%
+  filter(is.finite(z), abs(z) >= ZTH) %>%
+  mutate(
+    pair = map2_chr(from, to, ~ paste(sort(c(.x, .y)), collapse = "_"))
+  ) %>%
+  distinct(pair, .keep_all = TRUE) %>%
+  transmute(
+    target_label  = sapply(from, get_label),
+    partner_label = sapply(to,   get_label),
+    weight        = abs(diff),
+    z             = z,
+    pvalue        = p_two,
+    Stability = Stability
+  )
+
+#--------------------------------------------------
+# split by sign & sort
+#--------------------------------------------------
+edge_tab_pos <- edge_tab_z50 %>%
+  filter(z > 0) %>%
+  arrange(desc(z))
+
+edge_tab_neg <- edge_tab_z50 %>%
+  filter(z < 0) %>%
+  arrange(z)          
+
+#--------------------------------------------------
+# format for LaTeX
+#--------------------------------------------------
+fmt_num <- function(x, d = 2) formatC(x, format = "f", digits = d)
+fmt_sci <- function(x, d = 1) formatC(x, format = "e", digits = d)
+
+format_for_latex <- function(df) {
+  df %>%
+    mutate(
+      target_label  = escape_latex(target_label),
+      partner_label = escape_latex(partner_label),
+      weight = fmt_sci(weight, 1),
+      z      = fmt_num(z, 2),
+      pvalue = fmt_sci(pvalue, 1),
+      Stability = Stability
+    )
+}
+
+edge_tab_pos_fmt <- format_for_latex(edge_tab_pos)
+edge_tab_neg_fmt <- format_for_latex(edge_tab_neg)
+```
+
+
+```{r}
+#--------------------------------------------------
+# helper: write suptable
+#--------------------------------------------------
+write_suptable <- function(df, file, caption = NULL) {
+
+  lines <- c(
+    "\\begin{table}[hbt!]",
+    "\\centering",
+    "\\begin{adjustbox}{width=0.7\\textwidth}",
+    "\\begin{tabular}{lllrrl}",                    # ★ 6 col
+    "\\toprule",
+    "target\\_label & partner\\_label & weight & z & pvalue & Stability \\\\",  # ★ Sign
+    "\\midrule",
+    apply(df, 1, function(r) {
+      paste(r, collapse = " & ") |> paste0(" \\\\")
+    }),
+    "\\bottomrule",
+    "\\end{tabular}",
+    "\\end{adjustbox}",
+    if (!is.null(caption)) paste0("\\caption{", caption, "}"),
+    "\\label{tab:}",
+    "\\end{table}"
+  )
+
+  writeLines(lines, con = file)
+}
+
+
+#--------------------------------------------------
+# output
+#--------------------------------------------------
+write_suptable(
+  edge_tab_pos_fmt,
+  here("out", "edge_table_ZTH30_positive2.tex"),
+  caption = paste0(
+    "Edges with positive Z-scores ($Z \\ge 20$)"
+  )
+)
+
+
+write_suptable(
+  edge_tab_neg_fmt,
+  here("out", "edge_table_ZTH30_negative2.tex"),
+  caption = paste0(
+    "Edges with negative Z-scores ($Z \\le -20$)"
+  )
+)
+
+
+
+
+# Sign order
+pos_fmt2 <- edge_tab_pos_fmt[,c(1,2,6)] %>%
+  mutate(Stability = as.numeric(Stability)) %>%
+  arrange(desc(Stability))
+
+neg_fmt2 <- edge_tab_neg_fmt[,c(1,2,6)] %>%
+  mutate(Stability = as.numeric(Stability)) %>%
+  arrange(desc(Stability))
+
+pos_fmt2
+neg_fmt2
+
+
+sum(edges_all$diff == 0)
+sum(edges_all$diff == 0) / length(edges_all$diff)
+
+
+#edge_pairs_z1 <- make_edge_table(edges_all, ZTH = 1, get_label = get_label)
+#dim(edge_pairs_z0)
+
+#max(edge_pairs_z1$SignStability)
+#length(edge_pairs_z1$SignStability)
+#hist(edge_pairs_z1$SignStability)
+
+
+edges_all_nonfilter<- readRDS( here("out", "edges_diff_full_with_presence_permP.rds"))
+
+
+p <- ggplot(edges_all_nonfilter, aes(x = n_obs_real)) +
+  geom_histogram(
+    #aes(y = after_stat(density)),
+    bins = 60,
+    fill = "gray80",
+    color = "black",
+    linewidth = 0.2
+  ) +
+  labs(
+    x = "Stability (%)",
+    y = "Density"
+  ) +
+  theme_classic()
+
+print(p)
+
+
+#edges_all
+
+```
+
+
+plot 
+```{r}
+edges_all_nonfilter<- readRDS(here("out", "edges_diff_full_with_presence_permP.rds"))
+
+n_total <-  nrow(edges_all_nonfilter)
+
+library(dplyr)
+library(ggplot2)
+
+df2 <- edges_all_nonfilter %>%
+  filter(
+    !is.na(diff_raw),
+    !is.na(n_obs_real),
+    abs(diff_raw) > 1e-12
+  ) %>%
+  mutate(
+    obs_group = ifelse(n_obs_real >= 3, "≥3", "0–2")
+  )
+
+
+set.seed(1)
+Nmax <- 200000
+if (nrow(df2) > Nmax) {
+  df2 <- df2 %>% slice_sample(n = Nmax)
+}
+
+df2 <- df2 %>%
+  mutate(
+    Condition = ifelse(diff_raw > 0, "Drought", "Control")
+  )
+
+ratio <- nrow(df2) / n_total
+ratio_txt <- sprintf(
+  "Non-zero SHAP interaction edges: %d / %d (%.2f%%)",
+  nrow(df2), n_total, 100 * ratio
+)
+```
+
+
+```{r}
+xlim_sym <- max(abs(df2$diff_raw), na.rm = TRUE)
+
+p_scatter <- ggplot(df2, aes(x = diff_raw, y = n_obs_real, color = Condition)) +
+  geom_point(
+    alpha = 0.98,
+    size = 1.2,
+    shape = 16
+  ) +
+  scale_color_manual(
+    values = c(
+      "Drought" = "#D7263D",
+      "Control" = "#1E90FF"
+    ),
+    name = "Condition"
+  ) +
+  scale_y_continuous(limits = c(0, 70)) +
+  coord_cartesian(xlim = c(-xlim_sym, xlim_sym)) +
+  labs(
+    title = ratio_txt,
+    x = "SHAP Interaction difference (Drought − Control)",
+    y = "Observed frequency (100 bootstraps)"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      size  = 14,
+      face  = "bold"
+    ),
+    panel.border = element_rect(
+      color = "black",
+      fill  = NA,
+      linewidth = 0.6
+    ),
+    legend.position = c(0.98, 0.98),    
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(
+      fill = alpha("white", 0.7),
+      color = "black",
+      linewidth = 0.3
+    ),
+    legend.key = element_blank()
+  )
+
+
+binw <- (2 * xlim_sym) / 200   # bins=200 
+
+p_hist <- ggplot() +
+  # left（Control: diff_raw < 0）
+  geom_histogram(
+    data = df2 %>% filter(diff_raw < 0),
+    aes(x = diff_raw, y = after_stat(density), fill = "Control"),
+    binwidth = binw,
+    boundary = 0,
+    closed   = "right",
+    color = "black",
+    linewidth = 0.2,
+    alpha = 0.7
+  ) +
+  # right（Drought: diff_raw > 0）
+  geom_histogram(
+    data = df2 %>% filter(diff_raw > 0),
+    aes(x = diff_raw, y = after_stat(density), fill = "Drought"),
+    binwidth = binw,
+    boundary = 0,
+    closed   = "left",
+    color = "black",
+    linewidth = 0.2,
+    alpha = 0.7
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  coord_cartesian(xlim = c(-xlim_sym, xlim_sym)) +
+  scale_fill_manual(
+    values = c(
+      "Drought" = "#D7263D",
+      "Control" = "#1E90FF"
+    ),
+    name = "Condition"
+  ) +
+  labs(
+    title = ratio_txt,
+    x = "SHAP Interaction difference (Drought − Control)",
+    y = "Number of edges"
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      size  = 14,
+      face  = "bold"
+    ),
+    panel.grid.minor = element_blank(),
+    legend.position = c(0.98, 0.98),          
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(
+      fill = alpha("white", 0.7),
+      color = "black",
+      linewidth = 0.3
+    ),
+    legend.key = element_blank()
+  )
+
+print(p_hist)
+
+print(p_scatter)
+
+```
+

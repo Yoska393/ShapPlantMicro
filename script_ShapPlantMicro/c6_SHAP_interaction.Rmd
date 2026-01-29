@@ -1,5 +1,9 @@
-
-SHAP interaction
+---
+title: "c6_2"
+author: "Hayato Yoshioka"
+date: "2025-12-10"
+output: html_document
+---
 
 ```{r}
 require(here)
@@ -11,24 +15,18 @@ library(reticulate)
 library(tidyverse)
 
 extract_genus <- function(tax_str, rowname) {
-  # Extract genus: pattern "g__XXXX"
   genus_match <- regmatches(tax_str, regexpr("g__[^;]+", tax_str))
-  
-  # Remove "g__" if found
   if (length(genus_match) > 0) {
     genus <- gsub("g__", "", genus_match)
   } else {
     genus <- NA
   }
-  
-  # Return rowname if genus is NA, empty, or 'uncultured'
   if (is.na(genus) || genus == "" || tolower(genus) == "uncultured") {
     return(rowname)
   } else {
     return(genus)
   }
 }
-
 
 get_X_selected <- function(condition){
   if (condition == "Drought") {
@@ -44,11 +42,12 @@ get_X_selected <- function(condition){
   mic.cd <- scale(Data$mic)
   X_all <- cbind(genome, mic.cd, met.cd)
 
-  # imp_common_cols
+  # imp_common_cols later defined
   selected_columns <- intersect(imp_common_cols, colnames(X_all))
   X_selected <- X_all[, selected_columns, drop = FALSE]
   return(X_selected)
 }
+
 get_label <- function(name) {
   if (str_starts(name, "X")) {
     idx <- suppressWarnings(as.numeric(str_remove(name, "X")))
@@ -75,21 +74,18 @@ get_label <- function(name) {
   return(out_label)
 }
 
-
 ```
-
 
 ```{r}
 # 1. importance files
 imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
 imp_control <- readRDS(here("out", "imp_RF2_c.RDS"))
 
-
-# 2. threshohold 0.001 for each condition
+# 2. threshold 0.001 for each condition
 imp_d_cols <- colnames(imp_drought)[colSums(imp_drought) >= 0.001]
 imp_c_cols <- colnames(imp_control)[colSums(imp_control) >= 0.001]
 
-# 3.union
+# 3. union
 imp_common_cols <- union(imp_d_cols, imp_c_cols)
 
 # 4. X_selected for each condition
@@ -102,141 +98,816 @@ common_features <- intersect(colnames(X_selected_drought), colnames(X_selected_c
 X_selected_drought <- X_selected_drought[, common_features, drop = FALSE]
 X_selected_control <- X_selected_control[, common_features, drop = FALSE]
 
-# 結果表示
 cat("Common traits:", length(common_features), "\n")
 cat("X_selected_drought dimension", dim(X_selected_drought), "\n")
 cat("X_selected_control dimension", dim(X_selected_control), "\n")
+
 ```
 
 
 ```{r}
-set.seed(123)
+# Data
+Data_drought <- readRDS(here("data/SoyData_Drought2.RDS"))
+Data_control <- readRDS(here("data/SoyData_Control2.RDS"))
 
-# Combine and scale feature sets
-cd<-"Control" 
-#cd<-"Drought" 
+# phenotype scale
+psc19_drought <- scale(Data_drought$pheno)
+psc19_control <- scale(Data_control$pheno)
 
-if (cd == "Drought") {
-  X <- X_selected_drought
-  Data <- readRDS(here("data/SoyData_Drought2.RDS"))
-} else if (cd == "Control") {
-  X <- X_selected_control
-  Data <- readRDS(here("data/SoyData_Control2.RDS"))
-} else {
-  stop("Unknown condition")
-}
 
-genome<-Data$genome
-grm.cd<-Data$grm
-met.cd<-Data$met
-mic.cd<-Data$mic
+genome  <- scale(Data_control$genome)
+met.cd  <- scale(Data_control$met)
+mic.cd  <- scale(Data_control$mic)
 
-psc19<-Data$pheno
-microname<-Data$microname
-metname<-Data$metname
-cd<-Data$cd
+metname    <- Data_control$metname
+microname  <- Data_control$microname
 
-genome<- scale(genome)
-met.cd<-scale(met.cd)
-mic.cd <- scale(mic.cd)
-psc19 <- scale(psc19)
-mm<-matrix(metname,length(metname),1)
-rownames(mm)<-  paste0("X", 1:length(metname))
+mm <- matrix(metname, length(metname), 1)
+rownames(mm) <- paste0("X", 1:length(metname))
 
-cm<-matrix(microname,length(microname),1)
-rownames(cm)<-  paste0("B", 1:length(microname))
+cm <- matrix(microname, length(microname), 1)
+rownames(cm) <- paste0("B", 1:length(microname))
 
 micro_labels_genus <- mapply(extract_genus, cm[,1], rownames(cm))
 
-im001<-X
+```
 
-# Convert to be usable in Python
-assign("im001", im001, envir = .GlobalEnv)
-assign("psc19", psc19, envir = .GlobalEnv)
+# run
+
+for windows
+```{}
+library(reticulate)
+
+Sys.setenv(RETICULATE_CONDA = "C:/Users/biomet/anaconda3/Scripts/conda.exe")
+use_condaenv("omics", required = TRUE)
+py_config()
+
 
 ```
 
 
-```{python,eval=F}
+```{python}
 import shap
 import numpy as np
 import pandas as pd
 import xgboost
-import matplotlib.pyplot as plt
 import random
+
+conditions = ["Control", "Drought"]
+B_null = 100
+R_real = 1
+
+real_rep_results = {}
+real_mean_results = {}
+null_results = {}
+
+for cd in conditions:
+
+    # ---- select X,Y ----
+    if cd == "Control":
+        X = np.array(r.X_selected_control)
+        Y = np.array(r.psc19_control)[:, 0]
+    else:
+        X = np.array(r.X_selected_drought)
+        Y = np.array(r.psc19_drought)[:, 0]
+
+    n = Y.shape[0]
+
+    # ---- real repeats ----
+    real_list = []
+    for rep in range(R_real):
+        seed = 123 + rep
+        np.random.seed(seed)
+        random.seed(seed)
+
+        model = xgboost.XGBRegressor(
+            random_state=seed,
+            n_estimators=100,
+            max_depth=6,
+            learning_rate=0.3
+        )
+        model.fit(X, Y)
+
+        explainer = shap.TreeExplainer(model)
+        mat = explainer.shap_interaction_values(X).mean(axis=0)
+        real_list.append(pd.DataFrame(mat))
+
+    real_rep_results[cd] = real_list
+
+    # mean over real repeats
+    mean_val = sum(df.values for df in real_list) / R_real
+    real_mean_results[cd] = pd.DataFrame(mean_val)
+
+    # ---- null repeats (PERMUTATION NULL) ----
+    null_list = []
+    for b in range(B_null):
+        seed_b = 999 + b
+        np.random.seed(seed_b)
+        random.seed(seed_b)
+
+        # permutation breaks X–Y correspondence while preserving Y's marginal distribution
+        Y_perm = np.random.permutation(Y)
+
+        model_b = xgboost.XGBRegressor(
+            random_state=seed_b,
+            n_estimators=100,
+            max_depth=6,
+            learning_rate=0.3
+        )
+        model_b.fit(X, Y_perm)
+
+        explainer_b = shap.TreeExplainer(model_b)
+        mat_b = explainer_b.shap_interaction_values(X).mean(axis=0)
+        null_list.append(pd.DataFrame(mat_b))
+
+    null_results[cd] = null_list
+
+# return to R
+r.real_rep_results = real_rep_results
+r.real_mean_results = real_mean_results
+r.null_results = null_results
+
+
+```
+
+```{python}
+import shap
+import numpy as np
+import pandas as pd
+import xgboost
+import random
+
+conditions = ["Control", "Drought"]
+B_real_boot = 100   # bootstrap 100 times
+
+real_rep_results_boot = {}
+real_mean_results_boot = {}
+
+for cd in conditions:
+
+    # ---- select X,Y ----
+    if cd == "Control":
+        X = np.array(r.X_selected_control)
+        Y = np.array(r.psc19_control)[:,0]
+    else:
+        X = np.array(r.X_selected_drought)
+        Y = np.array(r.psc19_drought)[:,0]
+
+    n = Y.shape[0]
+
+    # -----------------------------
+    # ★ REAL bootstrap (100)
+    # -----------------------------
+    real_boot_list = []
+
+    for b in range(B_real_boot):
+        idx = np.random.choice(n, size=n, replace=True)
+        X_boot = X[idx, :]
+        Y_boot = Y[idx]
+
+        seed_b = 2000 + b
+        np.random.seed(seed_b)
+        random.seed(seed_b)
+
+        model_rb = xgboost.XGBRegressor(
+            random_state=seed_b,
+            n_estimators=100,
+            max_depth=6,
+            learning_rate=0.3
+        )
+        model_rb.fit(X_boot, Y_boot)
+
+        explainer_rb = shap.TreeExplainer(model_rb)
+        mat_rb = explainer_rb.shap_interaction_values(X_boot).mean(axis=0)
+
+        real_boot_list.append(pd.DataFrame(mat_rb))
+
+    real_rep_results_boot[cd] = real_boot_list
+
+    # 平均行列（100）
+    mean_val = sum([df.values for df in real_boot_list]) / B_real_boot
+    real_mean_results_boot[cd] = pd.DataFrame(mean_val)
+
+# R return
+r.real_rep_results_boot  = real_rep_results_boot
+r.real_mean_results_boot = real_mean_results_boot
+
 ```
 
 
-```{python,eval=F}
-# Create data
-X = r.im001
-Y = r.psc19[:, 0]
-
-print(X.shape)
-print(Y.shape)
-
-```
 
 
+```{r}
+real_rep_results  <- py$real_rep_results
+real_mean_results <- py$real_mean_results
+null_results      <- py$null_results
 
+feat_names <- colnames(X_selected_control)  # common_features
+for (cd in names(real_rep_results)) {
 
-```{python,eval=F}
-# Build model
-seed =123
-np.random.seed(seed)
-random.seed(seed)
+  ## --- real interaction （1） ---
+  imr_real <- as.matrix(real_mean_results[[cd]])
+  colnames(imr_real) <- feat_names
+  rownames(imr_real) <- feat_names
 
-model = xgboost.XGBRegressor(random_state=seed,n_estimators=100,max_depth=6,learning_rate=0.3)
-model.fit(X, Y)
+  ## --- null  ---
+  null_list <- lapply(null_results[[cd]], function(df) {
+    m <- as.matrix(df)
+    colnames(m) <- feat_names
+    rownames(m) <- feat_names
+    m
+  })
 
-# Calculate SHAP
-explainer = shap.TreeExplainer(model)
-shap_interaction_values = explainer.shap_interaction_values(X)
-
-# Interaction matrix
-interaction_matrix = pd.DataFrame(shap_interaction_values.mean(axis=0))
-
-interaction_matrix
-```
-
-
-```{python,eval=F}
-
-# If interaction_matrix is a DataFrame, flatten all values and draw a histogram
-interaction_matrix_values = interaction_matrix.values.flatten()
-
-# # Plot histogram
-# plt.hist(interaction_matrix_values, bins=30, edgecolor='black')
-# plt.title('Histogram of SHAP Interaction Values')
-# plt.xlabel('SHAP Interaction Value')
-# plt.ylabel('Frequency')
-# plt.show()
-
-import reticulate
-
-interaction_matrix_r = r.interaction_matrix = interaction_matrix
-```
-
-
-```{r,eval=F}
-
-# Pass Python variables to R
-imr <- py$interaction_matrix
-imr <- as.matrix(imr)
-hist(imr)
-max(imr)
-dim(imr)
-
-colnames(imr)<-colnames(im001)
-rownames(imr)<-colnames(im001)
-
-
-if (cd == "Drought"){
-	saveRDS(imr,here("out","imr_d4"))
-} else if (cd=="Control"){
-	saveRDS(imr,here("out","imr_c4"))
-} else {
-	stop()
+  if (cd == "Control") {
+    #saveRDS(imr_real,  here("out", "imr_c4_real.rds"))     # real
+    saveRDS(null_list, here("out", "imr_c4_null_boot.rds")) # null (B_null回)
+  } else if (cd == "Drought") {
+    #saveRDS(imr_real,  here("out", "imr_d4_real.rds"))
+    saveRDS(null_list, here("out", "imr_d4_null_boot.rds"))
+  }
 }
+
+
+```
+
+```{r}
+real_rep_results_boot  <- py$real_rep_results_boot
+real_mean_results_boot <- py$real_mean_results_boot
+
+feat_names <- colnames(X_selected_control)
+
+for (cd in names(real_rep_results_boot)) {
+
+  # bootstrap list 100
+  boot_list <- lapply(real_rep_results_boot[[cd]], function(df) {
+    m <- as.matrix(df)
+    colnames(m) <- feat_names
+    rownames(m) <- feat_names
+    m
+  })
+
+  # average
+  boot_mean <- as.matrix(real_mean_results_boot[[cd]])
+  colnames(boot_mean) <- feat_names
+  rownames(boot_mean) <- feat_names
+
+  if (cd == "Control") {
+    saveRDS(boot_list, here("out", "imr_c4_real_boot_list.rds"))
+    saveRDS(boot_mean, here("out", "imr_c4_real_boot_mean.rds"))
+  } else {
+    saveRDS(boot_list, here("out", "imr_d4_real_boot_list.rds"))
+    saveRDS(boot_mean, here("out", "imr_d4_real_boot_mean.rds"))
+  }
+}
+
+```
+
+
+
+# analysis
+
+test (point vs 100 null)
+
+```{r}
+# -------------------------------------------
+# Drought - Control  pooled null p value
+#   test: point(real) vs 100 null
+#   + sign_stability（real bootstrap ）
+# -------------------------------------------
+
+library(here)
+library(dplyr)
+
+# 0. load ---------------------------------------------------------------
+real_c  <- readRDS(here("out", "imr_c4_real.rds"))
+real_d  <- readRDS(here("out", "imr_d4_real.rds"))
+
+null_c  <- readRDS(here("out", "imr_c4_null_boot.rds"))
+null_d  <- readRDS(here("out", "imr_d4_null_boot.rds"))
+
+# real bootstrap（100枚）※p値には使わないが sign stability に使う
+real_c_boot_list <- readRDS(here("out", "imr_c4_real_boot_list.rds"))
+real_d_boot_list <- readRDS(here("out", "imr_d4_real_boot_list.rds"))
+
+# 1. helpers ------------------------------------------------------------
+get_upper <- function(mat) mat[upper.tri(mat, diag = FALSE)]
+
+boot_to_matrix <- function(boot_list) {
+  B   <- length(boot_list)
+  ref <- boot_list[[1]]
+  E   <- sum(upper.tri(ref, diag = FALSE))
+  out <- matrix(NA_real_, nrow = B, ncol = E)
+  for (b in seq_len(B)) out[b, ] <- get_upper(boot_list[[b]])
+  out
+}
+
+# 2. REAL (point) -------------------------------------------------------
+real_diff_mat <- real_d - real_c
+ut <- which(upper.tri(real_diff_mat, diag = FALSE), arr.ind = TRUE)
+feat_names <- colnames(real_diff_mat)
+
+real_delta_point <- get_upper(real_diff_mat)  # D - C（length E）
+E <- length(real_delta_point)
+
+# 3. NULL: dif bootstrap（singed） -------------------------------------
+B <- min(length(null_d), length(null_c))
+null_d <- null_d[seq_len(B)]
+null_c <- null_c[seq_len(B)]
+
+boot_null_d     <- boot_to_matrix(null_d)          # B x E
+boot_null_c     <- boot_to_matrix(null_c)          # B x E
+boot_null_delta <- boot_null_d - boot_null_c       # B x E（signed）
+B_null <- nrow(boot_null_delta)
+
+# 4. global z  -------------------------------------
+null_diff_all <- as.vector(boot_null_delta)  # edge×boot united
+global_mean_null_diff <- mean(null_diff_all)
+global_sd_null_diff   <- sd(null_diff_all)
+
+z_diff <- if (global_sd_null_diff > 0) {
+  (real_delta_point - global_mean_null_diff) / global_sd_null_diff
+} else {
+  rep(NA_real_, E)
+}
+
+# 5. p-values (bootstrap; point vs null 100) -----------------------------
+p_pos <- numeric(E)  # right: null >= real
+p_neg <- numeric(E)  # left: null <= real
+p_two <- numeric(E)  # both side: |null| >= |real|
+
+for (e in seq_along(real_delta_point)) {
+  real_val  <- real_delta_point[e]
+  null_vals <- boot_null_delta[, e]
+
+  p_pos[e] <- (1 + sum(null_vals >= real_val)) / (B_null + 1)
+  p_neg[e] <- (1 + sum(null_vals <= real_val)) / (B_null + 1)
+  p_two[e] <- (1 + sum(abs(null_vals) >= abs(real_val))) / (B_null + 1)
+}
+
+padj_pos <- p.adjust(p_pos, method = "BH")
+padj_neg <- p.adjust(p_neg, method = "BH")
+padj_two <- p.adjust(p_two, method = "BH")
+
+# 5'. sign stability (real bootstrap) -----------------------
+
+boot_real_c     <- boot_to_matrix(real_c_boot_list)  # 100 x E
+boot_real_d     <- boot_to_matrix(real_d_boot_list)  # 100 x E
+boot_real_delta <- boot_real_d - boot_real_c         # 100 x E
+
+stopifnot(ncol(boot_real_delta) == E)
+
+real_point <- real_delta_point
+rp <- matrix(
+  real_point,
+  nrow = nrow(boot_real_delta),
+  ncol = ncol(boot_real_delta),
+  byrow = TRUE
+)
+
+#table(sign(boot_real_delta))
+#table(sign(real_point))
+
+sign_stability <- colMeans(sign(boot_real_delta) == sign(rp))
+min_sign_stability  <- min(sign_stability, na.rm = TRUE)
+mean_sign_stability <- mean(sign_stability, na.rm = TRUE)
+
+# memory open
+rm(rp)
+gc()
+
+# 6. edges df -----------------------------------------------------------
+edges_diff2 <- data.frame(
+  i              = ut[, "row"],
+  j              = ut[, "col"],
+  from           = feat_names[ut[, "row"]],
+  to             = feat_names[ut[, "col"]],
+  diff_raw       = real_delta_point,
+  diff_abs       = abs(real_delta_point),
+  null_mean      = global_mean_null_diff,
+  null_sd        = global_sd_null_diff,
+  z_diff         = z_diff,
+  p_pos          = p_pos,
+  p_neg          = p_neg,
+  p_two          = p_two,
+  padj_pos       = padj_pos,
+  padj_neg       = padj_neg,
+  padj_two       = padj_two,
+  sign_stability = sign_stability
+)
+
+# 参考用に属性として保存（不要なら消してOK）
+attr(edges_diff2, "min_sign_stability")  <- min_sign_stability
+attr(edges_diff2, "mean_sign_stability") <- mean_sign_stability
+
+saveRDS(edges_diff2, here("out", "edges_diff2_global_with_p_and_signstab.rds"))
+
+```
+
+
+
+#hist
+
+```{r}
+# -----------------------------
+# Fine-bin histogram (non-zero only) + precise zero rate
+# -----------------------------
+suppressMessages({
+  library(here)
+  library(dplyr)
+  library(ggplot2)
+  library(scales)
+})
+
+# 1) load -------------------------------------------------------------
+#res <- readRDS(here("out", "edges_diff2_global_with_p.rds"))
+res <- readRDS(here("out", "edges_diff2_global_with_p_and_signstab.rds"))
+
+# 2) zero rate (high precision) ---------------------------------------
+n_total <- sum(is.finite(res$diff_raw))
+n_zero  <- sum(res$diff_raw == 0, na.rm = TRUE)
+zero_rate <- n_zero / n_total
+
+zero_rate_txt <- sprintf(
+  "",
+  n_zero, n_total, 100 * zero_rate
+)
+
+# 3) non-zero data ----------------------------------------------------
+df_nz <- res %>%
+  filter(is.finite(diff_raw), diff_raw != 0) %>%
+  transmute(val = diff_raw)
+
+# 4) x-range (robust) -------------------------------------------------
+xmin <- as.numeric(quantile(df_nz$val, 0.001, na.rm = TRUE))
+xmax <- as.numeric(quantile(df_nz$val, 0.999, na.rm = TRUE))
+
+q <- quantile(abs(df_nz$val), 0.999, na.rm = TRUE)
+xlim_sym <- c(-q, q)
+
+# z = ±30 
+x_z50_pos <- res$null_mean[1] + 30 * res$null_sd[1]
+x_z50_neg <- res$null_mean[1] - 30 * res$null_sd[1]
+
+p <- ggplot(df_nz, aes(x = val)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 200,
+    fill = "gray80",
+    color = "black",
+    linewidth = 0.2
+  ) +
+  geom_vline(xintercept = c(x_z50_neg, x_z50_pos),
+             color = "red",
+             linetype = "dashed",
+             linewidth = 0.6) +
+  coord_cartesian(xlim = xlim_sym) +
+  labs(
+    x = "SHAP Interaction value difference (Drought − Control)",
+    y = "Density",
+    subtitle = zero_rate_txt
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+print(p)
+
+
+xlim_sym <- max(abs(df_nz$val), na.rm = TRUE)
+xlim_sym <- c(-xlim_sym, xlim_sym)
+
+# bins=200 
+binw <- diff(xlim_sym) / 200
+
+p <- ggplot() +
+  # 左（val < 0）
+  geom_histogram(
+    data = df_nz |> dplyr::filter(val < 0),
+    aes(x = val, y = after_stat(density)),
+    binwidth  = binw,
+    boundary  = 0,
+    closed    = "right",   # 0 を左側に含めない（負側に 0 が入るなら right）
+    fill      = "gray80",
+    color     = "black",
+    linewidth = 0.2
+  ) +
+  # 右（val > 0）
+  geom_histogram(
+    data = df_nz |> dplyr::filter(val > 0),
+    aes(x = val, y = after_stat(density)),
+    binwidth  = binw,
+    boundary  = 0,
+    closed    = "left",    
+    fill      = "gray80",
+    color     = "black",
+    linewidth = 0.2
+  ) +
+  geom_vline(
+    xintercept = c(x_z50_neg, x_z50_pos),
+    color = "red", linetype = "dashed", linewidth = 0.6
+  ) +
+  #geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  coord_cartesian(xlim = xlim_sym) +
+  labs(
+    x = "SHAP Interaction value difference (Drought − Control)",
+    y = "Number of edges",
+    subtitle = zero_rate_txt
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+print(p)
+
+
+
+print(paste( n_zero, n_total, 100 * zero_rate))
+# (optional) save
+# ggsave(here("out", "hist_diff_raw_nonzero_finebinned.png"),
+#        p, width = 8, height = 5, dpi = 300)
+
+
+```
+
+stability (with zero inflation)
+```{r}
+
+res <- readRDS(here("out", "edges_diff2_global_with_p_and_signstab.rds"))
+					
+
+dim(res)
+sum(res$diff_raw==0)
+mean(res$sign_stability)
+
+
+```
+
+stability without 0
+```{r}
+# ============================================================
+# Drought - Control interaction difference analysis (FULL)
+#   - point(real) vs null bootstrap p-values (edge-wise)
+#   - global z (global null; your original approach)
+#   - real bootstrap diagnostics:
+#       * n_obs_real      : count of observed (non-zero) delta across real boot
+#       * obs_rate_real   : n_obs_real / B_real
+#       * sign_stab_real  : P(sign(delta_boot)=sign(point) | observed)
+#   - null diagnostics:
+#       * n_obs_null      : count of observed (non-zero) delta across null boot
+#       * obs_rate_null   : n_obs_null / B_null
+#   - rarity test (edge-wise permutation p-value; "most straightforward")
+#       * p_obs_edge      : compare n_obs_real to distribution of n_obs_null across edges
+#         p = (1 + #{edges: n_obs_null >= n_obs_real}) / (E + 1)
+#
+# Policy:
+#   - If point diff_raw is ~0 (|.|<=eps), do NOT interpret:
+#       set p/stability/rarity to NA.
+#   - 0 in bootstrap is treated as "not observed" (presence/absence event).
+# ============================================================
+
+library(here)
+library(dplyr)
+
+# ---------------------------
+# 0) load
+# ---------------------------
+# real_c  <- readRDS(here("out", "imr_c4_real.rds"))
+# real_d  <- readRDS(here("out", "imr_d4_real.rds"))
+# 
+# null_c  <- readRDS(here("out", "imr_c4_null_boot.rds"))
+# null_d  <- readRDS(here("out", "imr_d4_null_boot.rds"))
+# 
+# # real bootstrap (for stability/rarity diagnostics)
+# real_c_boot_list <- readRDS(here("out", "imr_c4_real_boot_list.rds"))
+# real_d_boot_list <- readRDS(here("out", "imr_d4_real_boot_list.rds"))
+
+# ---------------------------
+# 1) helpers
+# ---------------------------
+get_upper <- function(mat) mat[upper.tri(mat, diag = FALSE)]
+
+boot_to_matrix <- function(boot_list) {
+  B   <- length(boot_list)
+  ref <- boot_list[[1]]
+  E   <- sum(upper.tri(ref, diag = FALSE))
+  out <- matrix(NA_real_, nrow = B, ncol = E)
+  for (b in seq_len(B)) out[b, ] <- get_upper(boot_list[[b]])
+  out
+}
+
+# numerical zero threshold
+eps <- 1e-12
+
+# ---------------------------
+# 2) REAL (point): delta = D - C
+# ---------------------------
+real_diff_mat <- real_d - real_c
+ut <- which(upper.tri(real_diff_mat, diag = FALSE), arr.ind = TRUE)
+feat_names <- colnames(real_diff_mat)
+
+real_delta_point <- get_upper(real_diff_mat)  # length E
+E <- length(real_delta_point)
+
+keep_edge <- abs(real_delta_point) > eps
+cat("E =", E, "\n")
+cat("keep_edge (|point|>eps):", sum(keep_edge), "\n")
+
+# ---------------------------
+# 3) NULL: delta bootstrap = null_d - null_c  (signed)
+# ---------------------------
+B <- min(length(null_d), length(null_c))
+null_d <- null_d[seq_len(B)]
+null_c <- null_c[seq_len(B)]
+
+#boot_null_d     <- boot_to_matrix(null_d)
+#boot_null_c     <- boot_to_matrix(null_c)
+#boot_null_delta <- boot_null_d - boot_null_c
+B_null <- nrow(boot_null_delta)
+
+# ---------------------------
+# 4) global z (global null; your original approach)
+# ---------------------------
+null_diff_all <- as.vector(boot_null_delta)
+global_mean_null_diff <- mean(null_diff_all)
+global_sd_null_diff   <- sd(null_diff_all)
+
+z_diff <- rep(NA_real_, E)
+if (global_sd_null_diff > 0) {
+  z_diff[keep_edge] <- (real_delta_point[keep_edge] - global_mean_null_diff) / global_sd_null_diff
+}
+
+# ---------------------------
+# 5) p-values (point vs null; edge-wise, standard)
+# ---------------------------
+p_pos <- rep(NA_real_, E)  # right tail: null >= real
+p_neg <- rep(NA_real_, E)  # left tail : null <= real
+p_two <- rep(NA_real_, E)  # two-sided: |null| >= |real|
+
+for (e in which(keep_edge)) {
+  real_val  <- real_delta_point[e]
+  null_vals <- boot_null_delta[, e]
+
+  p_pos[e] <- (1 + sum(null_vals >= real_val)) / (B_null + 1)
+  p_neg[e] <- (1 + sum(null_vals <= real_val)) / (B_null + 1)
+  p_two[e] <- (1 + sum(abs(null_vals) >= abs(real_val))) / (B_null + 1)
+}
+
+padj_pos <- rep(NA_real_, E)
+padj_neg <- rep(NA_real_, E)
+padj_two <- rep(NA_real_, E)
+
+padj_pos[keep_edge] <- p.adjust(p_pos[keep_edge], method = "BH")
+padj_neg[keep_edge] <- p.adjust(p_neg[keep_edge], method = "BH")
+padj_two[keep_edge] <- p.adjust(p_two[keep_edge], method = "BH")
+
+# ---------------------------
+# 6) REAL bootstrap diagnostics (presence + direction stability)
+# ---------------------------
+#boot_real_c     <- boot_to_matrix(real_c_boot_list)
+#boot_real_d     <- boot_to_matrix(real_d_boot_list)
+#boot_real_delta <- boot_real_d - boot_real_c
+B_real <- nrow(boot_real_delta)
+stopifnot(ncol(boot_real_delta) == E)
+
+# presence counts & rates
+n_obs_real <- rep(NA_integer_, E)
+obs_rate_real <- rep(NA_real_, E)
+
+# direction stability conditional on observed
+sign_stab_real <- rep(NA_real_, E)
+sign_point <- sign(real_delta_point)
+
+for (e in which(keep_edge)) {
+  v <- boot_real_delta[, e]
+  obs <- abs(v) > eps
+
+  n_obs_real[e] <- sum(obs)
+  obs_rate_real[e] <- mean(obs)
+
+  if (sum(obs) == 0) {
+    sign_stab_real[e] <- NA_real_
+  } else {
+    sign_stab_real[e] <- mean(sign(v[obs]) == sign_point[e])
+  }
+}
+
+# ---------------------------
+# 7) NULL diagnostics (presence counts & rates)
+# ---------------------------
+n_obs_null <- rep(NA_integer_, E)
+obs_rate_null <- rep(NA_real_, E)
+
+for (e in seq_len(E)) {
+  v <- boot_null_delta[, e]
+  obs <- abs(v) > eps
+  n_obs_null[e] <- sum(obs)
+  obs_rate_null[e] <- mean(obs)
+}
+
+# ---------------------------
+# 8) Rarity test: edge-wise permutation p-value (presence frequency)
+#     Compare n_obs_real[e] to distribution of n_obs_null across edges.
+#     p_obs_edge[e] = (1 + #{edges: n_obs_null >= n_obs_real[e]}) / (E + 1)
+#
+#     NOTE:
+#       - This is a "permutation across edges" style null: assumes exchangeability
+#         of presence counts across edges under null.
+#       - We only compute this for keep_edge (point != 0), per your policy.
+# ---------------------------
+p_obs_edge <- rep(NA_real_, E)
+
+for (e in which(keep_edge)) {
+  k <- n_obs_real[e]
+  if (is.na(k)) next
+  p_obs_edge[e] <- (1 + sum(n_obs_null >= k, na.rm = TRUE)) / (E + 1)
+}
+
+padj_obs_edge <- rep(NA_real_, E)
+ok_obs <- keep_edge & !is.na(p_obs_edge)
+if (any(ok_obs)) padj_obs_edge[ok_obs] <- p.adjust(p_obs_edge[ok_obs], method = "BH")
+
+# ---------------------------
+# 9) edges df
+# ---------------------------
+edges_diff_full <- data.frame(
+  i                = ut[, "row"],
+  j                = ut[, "col"],
+  from             = feat_names[ut[, "row"]],
+  to               = feat_names[ut[, "col"]],
+  diff_raw         = real_delta_point,
+  diff_abs         = abs(real_delta_point),
+
+  # global z
+  null_mean_global = global_mean_null_diff,
+  null_sd_global   = global_sd_null_diff,
+  z_diff           = z_diff,
+
+  # point vs null p-values
+  p_pos            = p_pos,
+  p_neg            = p_neg,
+  p_two            = p_two,
+  padj_pos         = padj_pos,
+  padj_neg         = padj_neg,
+  padj_two         = padj_two,
+
+  # real bootstrap: presence + direction stability
+  n_obs_real       = n_obs_real,
+  obs_rate_real    = obs_rate_real,
+  sign_stab_real   = sign_stab_real,
+
+  # null: presence
+  n_obs_null       = n_obs_null,
+  obs_rate_null    = obs_rate_null,
+
+  # rarity test (presence frequency)
+  p_obs_edge       = p_obs_edge,
+  padj_obs_edge    = padj_obs_edge
+)
+
+edges_diff_full$keep_edge <- keep_edge
+
+# ---------------------------
+# 10) save
+# ---------------------------
+attr(edges_diff_full, "eps")    <- eps
+attr(edges_diff_full, "B_null") <- B_null
+attr(edges_diff_full, "B_real") <- B_real
+attr(edges_diff_full, "n_edges") <- E
+attr(edges_diff_full, "n_keep")  <- sum(keep_edge)
+
+saveRDS(edges_diff_full, here("out", "edges_diff_full_with_presence_permP.rds"))
+
+# ---------------------------
+# 11) quick checks
+# ---------------------------
+res <- edges_diff_full
+cat("diff_raw ~ 0:", sum(abs(res$diff_raw) <= eps), "\n")
+cat("mean obs_rate_real (kept):", mean(res$obs_rate_real[res$keep_edge], na.rm = TRUE), "\n")
+cat("mean sign_stab_real (kept):", mean(res$sign_stab_real[res$keep_edge], na.rm = TRUE), "\n")
+cat("mean p_obs_edge (kept):", mean(res$p_obs_edge[res$keep_edge], na.rm = TRUE), "\n")
+
+pode<-edges_diff_full$p_obs_edge
+```
+
+
+```{r}
+
+edges_diff_full<-readRDS( here("out", "edges_diff_full_with_presence_permP.rds"))
+stable_edges <- edges_diff_full %>%
+  filter(
+    keep_edge,
+    n_obs_real >= 2
+  )
+
+stable_edges2<-stable_edges[,1:16]
+
+colnames(stable_edges2)[16] <- "stability"
+
+saveRDS(stable_edges2, here("out", "edges_diff_full_with_p_stable_2percent.rds"))
+
 ```
 
