@@ -1,5 +1,9 @@
-
-from 58
+---
+title: "c10"
+author: "Hayato Yoshioka"
+date: "2025-12-10"
+output: html_document
+---
 
 ```{r, message =F}
 require(BGLR)
