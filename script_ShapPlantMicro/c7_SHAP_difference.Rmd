@@ -55,6 +55,26 @@ get_label <- function(name) {
 	
 }
 
+get_X_selected <- function(condition){
+  if (condition == "Drought") {
+    Data <- readRDS(here("data/SoyData_Drought2.RDS"))
+  } else if (condition == "Control") {
+    Data <- readRDS(here("data/SoyData_Control2.RDS"))
+  } else {
+    stop("Unknown condition")
+  }
+
+  genome <- scale(Data$genome)
+  met.cd <- scale(Data$met)
+  mic.cd <- scale(Data$mic)
+  X_all <- cbind(genome, mic.cd, met.cd)
+
+  # imp_common_cols later defined
+  selected_columns <- intersect(imp_common_cols, colnames(X_all))
+  X_selected <- X_all[, selected_columns, drop = FALSE]
+  return(X_selected)
+}
+
 ```
 
 ```{r}
@@ -297,7 +317,13 @@ tail(edge_pairs_sorted, 10)
 
 dim(edge_pairs_sorted)
 
+saveRDS(edge_pairs_sorted, here("out", "z30.rds"))
+
 ```
+
+
+```{r}
+￥
 
 more variable (also bigger)
 
@@ -911,5 +937,194 @@ print(p_hist)
 
 print(p_scatter)
 
+```
+
+
+```{r}
+# 1. importance files
+imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
+imp_control <- readRDS(here("out", "imp_RF2_c.RDS"))
+
+# 2. X_selected for each condition
+X_selected_drought <- get_X_selected("Drought")
+X_selected_control <- get_X_selected("Control")
+
+# 3. edge
+edge_pairs_sorted <- readRDS(here("out", "z30.rds"))
+edge <- edge_pairs_sorted[, c(1, 2)]
+colnames(edge) <- c("node1_id", "node2_id")
+
+# threshold candidates
+thresholds <- c(0.001,0.002,0.003,0.004, 0.005,0.006,0.007,0.008,0.009, 0.01)
+
+# results storage
+results <- lapply(thresholds, function(thr) {
+  
+  # important columns above threshold in each condition
+  imp_d_cols <- colnames(imp_drought)[colSums(imp_drought) >= thr]
+  imp_c_cols <- colnames(imp_control)[colSums(imp_control) >= thr]
+  
+  # union of important columns from both conditions
+  imp_common_cols <- union(imp_d_cols, imp_c_cols)
+  
+  # features existing in both X_selected objects
+  common_features <- intersect(colnames(X_selected_drought), colnames(X_selected_control))
+  
+  # keep only features that are both common and important
+  selected_features <- intersect(common_features, imp_common_cols)
+  
+  # edges whose both ends remain in selected_features
+  edge_remaining <- edge[
+    edge$node1_id %in% selected_features &
+    edge$node2_id %in% selected_features,
+    ,
+    drop = FALSE
+  ]
+  
+  data.frame(
+    theta = thr,
+    Number_of_Features= length(selected_features),
+    Number_of_Edges = nrow(edge_remaining),
+    Edge_Remaining = round(nrow(edge_remaining) /  160, 2)
+  )
+})
+
+results_df <- do.call(rbind, results)
+print(results_df)
+```
+
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(here)
+library(ggh4x)
+
+# 1. importance files
+imp_drought <- readRDS(here("out", "imp_RF2_d.RDS"))
+imp_control <- readRDS(here("out", "imp_RF2_c.RDS"))
+
+# 2. X_selected for each condition
+X_selected_drought <- get_X_selected("Drought")
+X_selected_control <- get_X_selected("Control")
+
+# 3. edge
+edge_pairs_sorted <- readRDS(here("out", "z30.rds"))
+edge_pairs_sorted$node1[109]<-"Peonidin"
+edge_pairs_sorted$node1[113]<-"Argininosuccinic acid"
+edge_pairs_sorted$node1[141]<-"Aminocyclopropane"
+edge_pairs_sorted$node1[120]<-"Dimethylbiguanide"
+edge_pairs_sorted$node2[63]<-"Dimethylbiguanide"
+edge_pairs_sorted$node2[68]<-"Methylhistamine"
+edge_pairs_sorted$node1[120]<-"Dimethylbiguanide"
+edge_pairs_sorted$node2[60]<-"Nicotinic acid"
+edge_pairs_sorted$node1[44]<-"Threonic acid"
+edge_pairs_sorted$node1[65]<-"Threonic acid"
+edge_pairs_sorted$node1[72]<-"Myricetin"
+edge_pairs_sorted$node2[35]<-"Aspartic acid"
+edge_pairs_sorted$node1[107]<-"Diaminopropionic acid"
+edge_pairs_sorted$node2[107]<-"Hydroxyanthranilic acid"
+edge_pairs_sorted$node1[43]<-"Hydroxylysine"
+#edge_pairs_sorted$node2
+```
+
+
+```{r, fig.height=14, fig.width=10.5}
+edge <- edge_pairs_sorted[, c("node1_id", "node2_id", "node1", "node2")]
+
+# heatmap 用ラベル
+edge$edge_id <- paste(edge$node1, edge$node2, sep = " -- ")
+
+# 元の順序
+edge$edge_row <- seq_len(nrow(edge))
+
+# threshold candidates
+thresholds <- c(0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01)
+
+# common features existing in both X_selected
+common_features <- intersect(colnames(X_selected_drought), colnames(X_selected_control))
+
+# 各 threshold で各 edge が残るかどうか
+edge_status_list <- lapply(thresholds, function(thr) {
+  
+  imp_d_cols <- colnames(imp_drought)[colSums(imp_drought) >= thr]
+  imp_c_cols <- colnames(imp_control)[colSums(imp_control) >= thr]
+  
+  imp_common_cols <- union(imp_d_cols, imp_c_cols)
+  selected_features <- intersect(common_features, imp_common_cols)
+  
+  data.frame(
+    edge_row   = edge$edge_row,
+    edge_id    = edge$edge_id,
+    node1_id   = edge$node1_id,
+    node2_id   = edge$node2_id,
+    node1      = edge$node1,
+    node2      = edge$node2,
+    theta      = thr,
+    remains    = as.integer(edge$node1_id %in% selected_features &
+                            edge$node2_id %in% selected_features)
+  )
+})
+
+edge_status_df <- bind_rows(edge_status_list)
+
+# edge の元の行番号に基づいてグループを付与
+edge_group <- data.frame(
+  edge_row = seq_len(nrow(edge)),
+  Group = c(rep("Drought", 90), rep("Control", 70))
+)
+
+# 結合
+edge_status_df2 <- edge_status_df %>%
+  left_join(edge_group, by = "edge_row")
+
+edge_status_df2$Group <- factor(edge_status_df2$Group, levels = c("Control", "Drought"))
+
+# 各 Group 内で独立した y 軸ID を作る
+edge_key_df <- edge_status_df2 %>%
+  distinct(edge_row, edge_id, Group) %>%
+  group_by(Group) %>%
+  arrange(edge_row, .by_group = TRUE) %>%
+  mutate(
+    y_order = if_else(Group == "Control",
+                      rev(row_number()),
+                      row_number()),
+    y_id = paste(Group, sprintf("%03d", y_order), edge_id, sep = "__")
+  ) %>%
+  ungroup()
+
+edge_status_df2 <- edge_status_df2 %>%
+  left_join(edge_key_df[, c("edge_row", "y_id")], by = "edge_row")
+
+# 1行目が上に来るように、各 Group 内で逆順に factor 化
+y_levels <- edge_key_df %>%
+  group_by(Group) %>%
+  arrange(desc(y_order), .by_group = TRUE) %>%
+  pull(y_id)
+
+edge_status_df2$y_id <- factor(edge_status_df2$y_id, levels = y_levels)
+
+# plot
+ggplot(edge_status_df2,
+       aes(x = factor(theta), y = y_id, fill = factor(remains))) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_manual(
+    values = c("0" = "grey85", "1" = "steelblue"),
+    labels = c("0" = "No edge", "1" = "Edge"),
+    name = "Network"
+  ) +
+  scale_y_discrete(
+    labels = function(x) sub("^[^_]+__\\d+__", "", x)
+  ) +
+  labs(x = expression(paste("Threshold ", theta)), y = "") +
+  facet_grid2(. ~ Group, scales = "free_y", space = "free_y", independent = "y") +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.y = element_text(size = 11),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    panel.grid = element_blank()
+  )
 ```
 
