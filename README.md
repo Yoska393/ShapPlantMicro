@@ -1,9 +1,6 @@
 # Interpretable multi-omics machine learning reveals drought-driven shifts in plant-microbe interactions
 
-This repository contains all scripts and data used for the analysis in **“Interpretable multi-omics machine learning reveals drought-driven shifts in plant-microbe interactions,”** published in _BMC Environmental Microbiome_.
-
-
-📄 Article available at: [https://doi.org/10.1186/s40793-026-00883-x](https://doi.org/10.1186/s40793-026-00883-x)
+This repository contains all scripts and data used for the analysis in **“Interpretable multi-omics machine learning reveals drought-driven shifts in plant-microbe interactions,”** published in [_BMC Environmental Microbiome_](https://doi.org/10.1186/s40793-026-00883-x).
 
 
 ---
