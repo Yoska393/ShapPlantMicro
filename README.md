@@ -70,7 +70,7 @@ Multi-Omics data raw files. Data include both control and drought conditions.
 
 ## Reference
 
-Yoshioka, H., Debeljak, P., Prado, S. et al. Interpretable multi-omics machine learning reveals drought-driven shifts in plant-microbe interactions. Environmental Microbiome (2026). [https://doi.org/10.1186/s40793-026-00883-x](https://doi.org/10.1186/s40793-026-00883-x)
+Yoshioka, H., Debeljak, P., Prado, S. et al. Interpretable multi-omics machine learning reveals drought-driven shifts in plant-microbe interactions. _Environmental Microbiome_ (2026). [https://doi.org/10.1186/s40793-026-00883-x](https://doi.org/10.1186/s40793-026-00883-x)
 
 
 
